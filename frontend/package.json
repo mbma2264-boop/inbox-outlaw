@@ -1,0 +1,24 @@
+{
+  "name": "inbox-guardian-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node ./node_modules/next/dist/bin/next dev --port 3000",
+    "build": "node ./node_modules/next/dist/bin/next build",
+    "start": "node ./node_modules/next/dist/bin/next start",
+    "lint": "next lint",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "prisma": "file:./tools/prisma-cli"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2"
+  }
+}

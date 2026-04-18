@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model EmailRecord {
+  id                String   @id @default(cuid())
+  senderName        String?
+  senderEmail       String
+  subject           String
+  bodyText          String
+  category          String
+  riskScore         Int      @default(0)
+  confidenceScore   Int      @default(0)
+  recommendedAction String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
