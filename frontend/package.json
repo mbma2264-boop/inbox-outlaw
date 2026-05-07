@@ -13,7 +13,7 @@
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "prisma": "file:./tools/prisma-cli"
+    "prisma": "^6.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
