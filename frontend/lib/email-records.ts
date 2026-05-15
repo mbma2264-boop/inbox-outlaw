@@ -6,32 +6,12 @@ import type {
   InboxSummary,
   StoredEmailRecord,
 } from './types';
-import { getDatabase } from './db';
 
 const DEFAULT_OWNER_EMAIL = 'anonymous@local.demo';
-
-function serializeRecord(row: Record<string, unknown>): StoredEmailRecord {
-  return {
-    id: String(row.id),
-    gmailMessageId: row.gmailMessageId ? String(row.gmailMessageId) : null,
-    threadId: row.threadId ? String(row.threadId) : null,
-    source: row.source ? String(row.source) : 'manual',
-    senderName: row.senderName ? String(row.senderName) : null,
-    senderEmail: String(row.senderEmail),
-    subject: String(row.subject),
-    bodyText: String(row.bodyText),
-    category: String(row.category),
-    riskScore: Number(row.riskScore),
-    confidenceScore: Number(row.confidenceScore),
-    recommendedAction: row.recommendedAction ? String(row.recommendedAction) : null,
-    receivedAt: row.receivedAt ? String(row.receivedAt) : null,
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
-  };
-}
+const emailRecordStore = new Map<string, StoredEmailRecord[]>();
 
 export async function ensureEmailRecordStore() {
-  getDatabase();
+  return;
 }
 
 export async function createEmailRecord(
@@ -39,7 +19,6 @@ export async function createEmailRecord(
   email: EmailInput,
   result: ClassificationResult,
 ) {
-  const db = getDatabase();
   const now = new Date().toISOString();
   const record: StoredEmailRecord = {
     id: randomUUID(),
@@ -59,30 +38,8 @@ export async function createEmailRecord(
     updatedAt: now,
   };
 
-  db.prepare(`
-    INSERT INTO EmailRecord (
-      id, ownerEmail, gmailMessageId, threadId, source, senderName, senderEmail, subject, bodyText, category,
-      riskScore, confidenceScore, recommendedAction, receivedAt, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    record.id,
-    ownerEmail,
-    record.gmailMessageId,
-    record.threadId,
-    record.source,
-    record.senderName,
-    record.senderEmail,
-    record.subject,
-    record.bodyText,
-    record.category,
-    record.riskScore,
-    record.confidenceScore,
-    record.recommendedAction,
-    record.receivedAt,
-    record.createdAt,
-    record.updatedAt,
-  );
-
+  const existing = emailRecordStore.get(ownerEmail) || [];
+  emailRecordStore.set(ownerEmail, [record, ...existing].slice(0, 100));
   return record;
 }
 
@@ -112,96 +69,43 @@ export async function upsertSyncedEmailRecords(
   ownerEmail: string = DEFAULT_OWNER_EMAIL,
   messages: GmailSyncMessage[],
 ) {
-  const db = getDatabase();
+  const existing = emailRecordStore.get(ownerEmail) || [];
+  const byGmailId = new Map(existing.map((record) => [record.gmailMessageId || record.id, record]));
   const savedRecords: StoredEmailRecord[] = [];
 
-  const upsert = db.prepare(`
-    INSERT INTO EmailRecord (
-      id, ownerEmail, gmailMessageId, threadId, source, senderName, senderEmail, subject, bodyText, category,
-      riskScore, confidenceScore, recommendedAction, receivedAt, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(ownerEmail, gmailMessageId) DO UPDATE SET
-      threadId=excluded.threadId,
-      source=excluded.source,
-      senderName=excluded.senderName,
-      senderEmail=excluded.senderEmail,
-      subject=excluded.subject,
-      bodyText=excluded.bodyText,
-      category=excluded.category,
-      riskScore=excluded.riskScore,
-      confidenceScore=excluded.confidenceScore,
-      recommendedAction=excluded.recommendedAction,
-      receivedAt=COALESCE(excluded.receivedAt, EmailRecord.receivedAt),
-      updatedAt=excluded.updatedAt
-  `);
-
   for (const message of messages) {
-    const record = mapSyncedMessageToStoredRecord(message);
-    upsert.run(
-      record.id,
-      ownerEmail,
-      record.gmailMessageId,
-      record.threadId,
-      record.source,
-      record.senderName,
-      record.senderEmail,
-      record.subject,
-      record.bodyText,
-      record.category,
-      record.riskScore,
-      record.confidenceScore,
-      record.recommendedAction,
-      record.receivedAt,
-      record.createdAt,
-      record.updatedAt,
-    );
-
-    const stored = db.prepare(`
-      SELECT id, gmailMessageId, threadId, source, senderName, senderEmail, subject, bodyText,
-             category, riskScore, confidenceScore, recommendedAction, receivedAt, createdAt, updatedAt
-      FROM EmailRecord
-      WHERE ownerEmail = ? AND gmailMessageId = ?
-    `).get(ownerEmail, record.gmailMessageId) as Record<string, unknown>;
-
-    savedRecords.push(serializeRecord(stored));
+    const incoming = mapSyncedMessageToStoredRecord(message);
+    const key = incoming.gmailMessageId || incoming.id;
+    const current = byGmailId.get(key);
+    const record = current ? { ...current, ...incoming, id: current.id, createdAt: current.createdAt, updatedAt: new Date().toISOString() } : incoming;
+    byGmailId.set(key, record);
+    savedRecords.push(record);
   }
 
+  const merged = Array.from(byGmailId.values())
+    .sort((a, b) => new Date(b.receivedAt || b.createdAt).getTime() - new Date(a.receivedAt || a.createdAt).getTime())
+    .slice(0, 100);
+  emailRecordStore.set(ownerEmail, merged);
   return savedRecords;
 }
 
 export async function listEmailRecords(ownerEmail: string = DEFAULT_OWNER_EMAIL, limit = 12) {
-  const db = getDatabase();
-  const rows = db.prepare(`
-    SELECT id, gmailMessageId, threadId, source, senderName, senderEmail, subject, bodyText, category,
-           riskScore, confidenceScore, recommendedAction, receivedAt, createdAt, updatedAt
-    FROM EmailRecord
-    WHERE ownerEmail = ?
-    ORDER BY COALESCE(datetime(receivedAt), datetime(createdAt)) DESC
-    LIMIT ?
-  `).all(ownerEmail, limit) as Record<string, unknown>[];
-
-  return rows.map(serializeRecord);
+  return (emailRecordStore.get(ownerEmail) || [])
+    .sort((a, b) => new Date(b.receivedAt || b.createdAt).getTime() - new Date(a.receivedAt || a.createdAt).getTime())
+    .slice(0, limit);
 }
 
-function countByCategory(ownerEmail: string, categories: string[]) {
-  const db = getDatabase();
-  if (categories.length === 0) {
-    const row = db.prepare(`SELECT COUNT(*) as total FROM EmailRecord WHERE ownerEmail = ?`).get(ownerEmail) as { total: number };
-    return Number(row.total);
-  }
-
-  const placeholders = categories.map(() => '?').join(', ');
-  const row = db
-    .prepare(`SELECT COUNT(*) as total FROM EmailRecord WHERE ownerEmail = ? AND category IN (${placeholders})`)
-    .get(ownerEmail, ...categories) as { total: number };
-  return Number(row.total);
+function countByCategory(records: StoredEmailRecord[], categories: string[]) {
+  if (categories.length === 0) return records.length;
+  return records.filter((record) => categories.includes(record.category)).length;
 }
 
 export async function getInboxSummary(ownerEmail: string = DEFAULT_OWNER_EMAIL): Promise<InboxSummary> {
-  const total = countByCategory(ownerEmail, []);
-  const scams = countByCategory(ownerEmail, ['Scam', 'Likely Scam']);
-  const opportunities = countByCategory(ownerEmail, ['Opportunity']);
-  const handled = countByCategory(ownerEmail, [
+  const records = emailRecordStore.get(ownerEmail) || [];
+  const total = countByCategory(records, []);
+  const scams = countByCategory(records, ['Scam', 'Likely Scam']);
+  const opportunities = countByCategory(records, ['Opportunity']);
+  const handled = countByCategory(records, [
     'Scam',
     'Likely Scam',
     'Promotion',
