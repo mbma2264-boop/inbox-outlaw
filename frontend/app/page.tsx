@@ -1,7 +1,29 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { DEMO_EMAIL, getSessionUser } from "../lib/auth";
 
-export default async function HomePage() {
+type PageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function HomePage({ searchParams }: PageProps) {
+  const params = searchParams ? await searchParams : {};
+  const code = firstParam(params.code);
+  const state = firstParam(params.state);
+  const error = firstParam(params.error);
+
+  if ((code && state) || error) {
+    const callbackParams = new URLSearchParams();
+    if (code) callbackParams.set("code", code);
+    if (state) callbackParams.set("state", state);
+    if (error) callbackParams.set("error", error);
+    redirect(`/api/gmail/oauth/callback?${callbackParams.toString()}`);
+  }
+
   const sessionUser = await getSessionUser();
 
   return (
