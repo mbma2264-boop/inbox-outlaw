@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { handleGoogleCallback } from '../../../../../frontend/lib/gmail-local';
+import { handleGoogleCallback } from '../../../../lib/gmail-local';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     const state = url.searchParams.get('state');
 
     if (!code || !state) {
-      return NextResponse.redirect(new URL('/dashboard?gmail_error=missing_oauth_parameters', url.origin));
+      return NextResponse.redirect(new URL('/dashboard?gmail=error&message=missing_oauth_parameters', url.origin));
     }
 
     const redirectTo = await handleGoogleCallback(url.origin, code, state);
@@ -18,6 +18,6 @@ export async function GET(request: Request) {
   } catch (error) {
     const url = new URL(request.url);
     const message = error instanceof Error ? error.message : 'Google OAuth failed.';
-    return NextResponse.redirect(new URL(`/dashboard?gmail_error=${encodeURIComponent(message)}`, url.origin));
+    return NextResponse.redirect(new URL(`/dashboard?gmail=error&message=${encodeURIComponent(message)}`, url.origin));
   }
 }
