@@ -1,18 +1,37 @@
 import { NextResponse } from 'next/server';
 import { requireSessionUser } from '../../../../lib/auth';
+import { getMissingGmailEnv, readStoredTokens } from '../../../../lib/gmail-local';
 import type { GmailStatus } from '../../../../lib/types';
 
 export const runtime = 'nodejs';
-const BACKEND_API_BASE_URL = process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 export async function GET() {
-  let user;
-  try { user = await requireSessionUser(); } catch { return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 }); }
-  const response = await fetch(`${BACKEND_API_BASE_URL}/api/gmail/status`, { cache: 'no-store', headers: { 'X-Demo-User': user.email } });
-  if (!response.ok) {
-    const detail = await response.text();
-    return NextResponse.json({ error: `Gmail status request failed with ${response.status}.`, detail }, { status: 502 });
+  try {
+    await requireSessionUser();
+  } catch {
+    return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
   }
-  const payload = (await response.json()) as GmailStatus;
+
+  const missing = getMissingGmailEnv();
+  if (missing.length > 0) {
+    const payload: GmailStatus = {
+      connected: false,
+      has_refresh_token: false,
+      scopes: [],
+      token_expiry: null,
+      note: `Gmail OAuth is not configured yet. Missing: ${missing.join(', ')}.`,
+    };
+    return NextResponse.json(payload);
+  }
+
+  const tokens = await readStoredTokens();
+  const payload: GmailStatus = {
+    connected: Boolean(tokens?.access_token || tokens?.refresh_token),
+    has_refresh_token: Boolean(tokens?.refresh_token),
+    scopes: tokens?.scope ? tokens.scope.split(/\s+/).filter(Boolean) : [],
+    token_expiry: tokens?.expires_at ? new Date(tokens.expires_at).toISOString() : null,
+    note: tokens?.access_token || tokens?.refresh_token ? 'Gmail is connected.' : 'Gmail is not connected yet.',
+  };
+
   return NextResponse.json(payload);
 }
