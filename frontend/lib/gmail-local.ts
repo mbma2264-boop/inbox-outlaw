@@ -6,6 +6,7 @@ export const GMAIL_TOKEN_COOKIE = 'inbox_guardian_gmail_tokens';
 export const GMAIL_STATE_COOKIE = 'inbox_guardian_gmail_state';
 
 const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
+const DEFAULT_GMAIL_REDIRECT_PATH = '/api/auth/callback/google';
 
 type StoredTokens = {
   access_token?: string;
@@ -38,12 +39,57 @@ function requiredEnv() {
   };
 }
 
+function isPlaceholderGoogleClientId(clientId: string) {
+  const normalized = clientId.trim().toLowerCase();
+  return (
+    normalized.startsWith('1234567890-') ||
+    normalized.includes('-abcde') ||
+    normalized.includes('your-client') ||
+    normalized === 'google_client_id' ||
+    normalized === 'client_id'
+  );
+}
+
+function getConfiguredOrigin(requestOrigin: string) {
+  const nextAuthUrl = process.env.NEXTAUTH_URL?.trim();
+  if (nextAuthUrl && nextAuthUrl !== 'https://example.com') return nextAuthUrl.replace(/\/$/, '');
+
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) return `https://${vercelUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
+
+  return requestOrigin.replace(/\/$/, '');
+}
+
+export function getGmailRedirectUri(requestOrigin: string) {
+  const explicitRedirectUri = process.env.GOOGLE_REDIRECT_URI?.trim();
+  if (explicitRedirectUri && /^https?:\/\//i.test(explicitRedirectUri)) return explicitRedirectUri;
+
+  const redirectPath = explicitRedirectUri && explicitRedirectUri.startsWith('/') ? explicitRedirectUri : DEFAULT_GMAIL_REDIRECT_PATH;
+  return `${getConfiguredOrigin(requestOrigin)}${redirectPath}`;
+}
+
 export function getMissingGmailEnv() {
   const env = requiredEnv();
   return [
     !env.clientId ? 'GOOGLE_CLIENT_ID' : null,
     !env.clientSecret ? 'GOOGLE_CLIENT_SECRET' : null,
   ].filter(Boolean) as string[];
+}
+
+export function validateGmailEnv(requestOrigin: string) {
+  const missing = getMissingGmailEnv();
+  if (missing.length > 0) {
+    throw new Error(`Missing Gmail environment variable(s): ${missing.join(', ')}.`);
+  }
+
+  const { clientId } = requiredEnv();
+  if (isPlaceholderGoogleClientId(clientId)) {
+    throw new Error('GOOGLE_CLIENT_ID is still a placeholder. Replace it in Vercel with the real Google Cloud OAuth Client ID ending in apps.googleusercontent.com, then redeploy.');
+  }
+
+  return {
+    redirectUri: getGmailRedirectUri(requestOrigin),
+  };
 }
 
 function encodeCookie(value: unknown) {
@@ -82,6 +128,7 @@ export async function clearStoredTokens() {
 
 export async function createGoogleAuthorizationUrl(origin: string, returnTo: string) {
   const { clientId } = requiredEnv();
+  const { redirectUri } = validateGmailEnv(origin);
   const state = randomBytes(18).toString('base64url');
   const cookieStore = await cookies();
   cookieStore.set(GMAIL_STATE_COOKIE, encodeCookie({ state, returnTo }), {
@@ -94,7 +141,7 @@ export async function createGoogleAuthorizationUrl(origin: string, returnTo: str
 
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', `${origin}/api/gmail/callback`);
+  url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', GMAIL_SCOPES.join(' '));
   url.searchParams.set('access_type', 'offline');
@@ -105,6 +152,7 @@ export async function createGoogleAuthorizationUrl(origin: string, returnTo: str
 
 export async function handleGoogleCallback(origin: string, code: string, state: string) {
   const { clientId, clientSecret } = requiredEnv();
+  const { redirectUri } = validateGmailEnv(origin);
   const cookieStore = await cookies();
   const savedState = decodeCookie<{ state: string; returnTo: string }>(cookieStore.get(GMAIL_STATE_COOKIE)?.value);
   cookieStore.delete(GMAIL_STATE_COOKIE);
@@ -118,7 +166,7 @@ export async function handleGoogleCallback(origin: string, code: string, state: 
       client_secret: clientSecret,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: `${origin}/api/gmail/callback`,
+      redirect_uri: redirectUri,
     }),
     cache: 'no-store',
   });
