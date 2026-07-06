@@ -4,8 +4,16 @@ import { requireSessionUser } from '../../../lib/auth';
 import { createEmailRecord, getInboxSummary, listEmailRecords } from '../../../lib/email-records';
 import type { ClassificationResult, EmailInput } from '../../../lib/types';
 
-const BACKEND_API_BASE_URL =
-  process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const PRODUCTION_BACKEND_API_BASE_URL = 'https://inbox-outlaw-backend.onrender.com';
+
+function getBackendApiBaseUrl() {
+  const configuredUrl =
+    process.env.BACKEND_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL;
+
+  return (configuredUrl || PRODUCTION_BACKEND_API_BASE_URL).replace(/\/$/, '');
+}
 
 function validateEmailPayload(payload: Partial<EmailInput>): payload is EmailInput {
   return Boolean(
@@ -52,7 +60,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required email fields.' }, { status: 400 });
   }
 
-  const classifyResponse = await fetch(`${BACKEND_API_BASE_URL}/api/classify`, {
+  const classifyResponse = await fetch(`${getBackendApiBaseUrl()}/api/classify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
