@@ -5,7 +5,17 @@ import { getInboxSummary, listEmailRecords, upsertSyncedEmailRecords } from '../
 import type { GmailSyncMessage } from '../../../../lib/types';
 
 export const runtime = 'nodejs';
-const BACKEND_API_BASE_URL = process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+
+const PRODUCTION_BACKEND_API_BASE_URL = 'https://inbox-outlaw-backend.onrender.com';
+
+function getBackendApiBaseUrl() {
+  const configuredUrl =
+    process.env.BACKEND_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_URL;
+
+  return (configuredUrl || PRODUCTION_BACKEND_API_BASE_URL).replace(/\/$/, '');
+}
 
 export async function POST(request: Request) {
   let user;
@@ -13,7 +23,7 @@ export async function POST(request: Request) {
   let payload: { limit?: number; pageToken?: string } = {};
   try { payload = (await request.json().catch(() => ({}))) as { limit?: number; pageToken?: string }; } catch { payload = {}; }
   const limit = Math.max(1, Math.min(25, Number(payload.limit ?? 10)));
-  const backendUrl = new URL(`${BACKEND_API_BASE_URL}/api/gmail/sync`);
+  const backendUrl = new URL(`${getBackendApiBaseUrl()}/api/gmail/sync`);
   backendUrl.searchParams.set('limit', String(limit));
   if (payload.pageToken) backendUrl.searchParams.set('page_token', payload.pageToken);
   const response = await fetch(backendUrl, { method: 'POST', cache: 'no-store', headers: { 'X-Demo-User': user.email } });
