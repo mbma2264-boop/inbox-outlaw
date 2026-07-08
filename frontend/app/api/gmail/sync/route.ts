@@ -1,21 +1,11 @@
 import { NextResponse } from 'next/server';
 import { addActivityLog } from '../../../../lib/activity-log';
 import { requireSessionUser } from '../../../../lib/auth';
+import { getBackendApiBaseUrl, parseBackendError } from '../../../../lib/backend';
 import { getInboxSummary, listEmailRecords, upsertSyncedEmailRecords } from '../../../../lib/email-records';
 import type { GmailSyncMessage } from '../../../../lib/types';
 
 export const runtime = 'nodejs';
-
-const PRODUCTION_BACKEND_API_BASE_URL = 'https://inbox-outlaw-backend.onrender.com';
-
-function getBackendApiBaseUrl() {
-  const configuredUrl =
-    process.env.BACKEND_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_URL;
-
-  return (configuredUrl || PRODUCTION_BACKEND_API_BASE_URL).replace(/\/$/, '');
-}
 
 export async function POST(request: Request) {
   let user;
@@ -23,13 +13,13 @@ export async function POST(request: Request) {
   let payload: { limit?: number; pageToken?: string } = {};
   try { payload = (await request.json().catch(() => ({}))) as { limit?: number; pageToken?: string }; } catch { payload = {}; }
   const limit = Math.max(1, Math.min(25, Number(payload.limit ?? 10)));
-  const backendUrl = new URL(`${getBackendApiBaseUrl()}/api/gmail/sync`);
+  const backendUrl = new URL('/api/gmail/sync', getBackendApiBaseUrl());
   backendUrl.searchParams.set('limit', String(limit));
   if (payload.pageToken) backendUrl.searchParams.set('page_token', payload.pageToken);
   const response = await fetch(backendUrl, { method: 'POST', cache: 'no-store', headers: { 'X-Demo-User': user.email } });
   if (!response.ok) {
-    const errorPayload = (await response.json().catch(() => null)) as { detail?: string } | null;
-    return NextResponse.json({ error: errorPayload?.detail || `Gmail sync failed with ${response.status}.` }, { status: response.status === 409 ? 409 : 502 });
+    const message = await parseBackendError(response, `Gmail sync failed with ${response.status}.`);
+    return NextResponse.json({ error: message }, { status: response.status === 409 ? 409 : 502 });
   }
   const backendPayload = (await response.json()) as { imported_count: number; next_page_token?: string | null; messages: GmailSyncMessage[] };
   const savedRecords = await upsertSyncedEmailRecords(user.email, backendPayload.messages);
