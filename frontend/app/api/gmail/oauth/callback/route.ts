@@ -1,26 +1,48 @@
 import { NextResponse } from 'next/server';
-import { getBackendApiBaseUrl } from '../../../../../lib/backend';
+import { handleGoogleCallback } from '../../../../../lib/gmail-local';
 
 export const runtime = 'nodejs';
 
+function dashboardRedirect(origin: string, gmail: 'connected' | 'error', message?: string) {
+  const url = new URL('/dashboard', origin);
+  url.searchParams.set('gmail', gmail);
+  if (gmail === 'connected') url.searchParams.set('connected', 'true');
+  if (message) url.searchParams.set('message', message);
+  return NextResponse.redirect(url, 302);
+}
+
+function safeReturnTo(rawReturnTo: string, origin: string) {
+  try {
+    const returnTo = new URL(rawReturnTo, origin);
+    if (returnTo.origin === origin) return returnTo;
+  } catch {
+    // Fall back below.
+  }
+  return new URL('/dashboard', origin);
+}
+
 export async function GET(request: Request) {
   const currentUrl = new URL(request.url);
-  let backendBaseUrl: string;
+  const code = currentUrl.searchParams.get('code');
+  const state = currentUrl.searchParams.get('state');
+  const error = currentUrl.searchParams.get('error');
 
-  try {
-    backendBaseUrl = getBackendApiBaseUrl(currentUrl.origin);
-  } catch (error) {
-    const dashboardUrl = new URL('/dashboard', currentUrl.origin);
-    dashboardUrl.searchParams.set('gmail', 'error');
-    dashboardUrl.searchParams.set(
-      'message',
-      error instanceof Error ? error.message : 'gmail_connect_failed',
-    );
-    return NextResponse.redirect(dashboardUrl, 302);
+  if (error) {
+    return dashboardRedirect(currentUrl.origin, 'error', error);
   }
 
-  const callbackUrl = new URL('/api/gmail/oauth/callback', backendBaseUrl);
-  currentUrl.searchParams.forEach((value, key) => callbackUrl.searchParams.set(key, value));
+  if (!code || !state) {
+    return dashboardRedirect(currentUrl.origin, 'error', 'Missing Google authorization code or state.');
+  }
 
-  return NextResponse.redirect(callbackUrl, 302);
+  try {
+    const returnTo = await handleGoogleCallback(currentUrl.origin, code, state);
+    const redirectUrl = safeReturnTo(returnTo, currentUrl.origin);
+    redirectUrl.searchParams.set('gmail', 'connected');
+    redirectUrl.searchParams.set('connected', 'true');
+    return NextResponse.redirect(redirectUrl, 302);
+  } catch (callbackError) {
+    const message = callbackError instanceof Error ? callbackError.message : 'Gmail connection failed.';
+    return dashboardRedirect(currentUrl.origin, 'error', message);
+  }
 }
