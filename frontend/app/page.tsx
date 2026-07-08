@@ -32,15 +32,20 @@ export default async function HomePage({ searchParams }: PageProps) {
     <main className="page">
       <div className="container">
         <section className="hero">
-          <h1>Inbox Guardian Demo</h1>
+          <h1>Inbox Outlaw Demo</h1>
           <p>
             A demo-ready inbox triage app that spots scams, surfaces real opportunities, explains its reasoning, and keeps a visible audit trail.
+          </p>
+          <p>
+            Gmail access is optional. If you connect Gmail, Inbox Outlaw asks Google only for read-only access to recent inbox messages so it can classify them in your dashboard.
           </p>
           <div style={{ display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
             <Link href={sessionUser ? "/dashboard" : "/login"} className="button">
               {sessionUser ? "Open dashboard" : "Sign in for demo"}
             </Link>
             <a href={backendDocsUrl} className="button secondary">Backend docs</a>
+            <Link href="/privacy" className="button secondary">Privacy</Link>
+            <Link href="/terms" className="button secondary">Terms</Link>
           </div>
           <p className="subtle" style={{ marginTop: 14 }}>
             Demo account preset: {DEMO_EMAIL}
@@ -57,8 +62,8 @@ export default async function HomePage({ searchParams }: PageProps) {
             <p>Every result includes risk, confidence, reasons, matched rules, and an action recommendation.</p>
           </div>
           <div className="card">
-            <h2>Demo flow built in</h2>
-            <p>Sign in, load sample inbox data, then optionally connect Gmail to show real sync on top of the seeded records.</p>
+            <h2>Read-only Gmail sync</h2>
+            <p>Connect Gmail only when you want to import recent inbox messages. The app does not send, edit, delete, archive, or mark messages as read.</p>
           </div>
         </section>
       </div>
