@@ -12,9 +12,12 @@ export default async function LoginPage() {
     <main className="page">
       <div className="container">
         <section className="hero">
-          <h1>Inbox Guardian Demo Login</h1>
+          <h1>Inbox Outlaw Demo Login</h1>
           <p>
             Use the preset demo account below to open the dashboard quickly. It is pre-configured for your demo flow: <strong>{DEMO_EMAIL}</strong>.
+          </p>
+          <p className="subtle">
+            You can use sample data without connecting Gmail. Gmail sync is optional and read-only.
           </p>
         </section>
 
@@ -39,6 +42,7 @@ export default async function LoginPage() {
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <button className="button" type="submit">Continue to dashboard</button>
               <Link href="/" className="button secondary">Back</Link>
+              <Link href="/privacy" className="button secondary">Privacy</Link>
             </div>
           </form>
         </section>
