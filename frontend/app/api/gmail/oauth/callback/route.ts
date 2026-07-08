@@ -1,41 +1,25 @@
 import { NextResponse } from 'next/server';
+import { getBackendApiBaseUrl } from '../../../../../lib/backend';
 
 export const runtime = 'nodejs';
 
-function getBackendBaseUrl(requestUrl: string): { backendBaseUrl: string } | { error: string } {
-  const requestOrigin = new URL(requestUrl).origin;
-  const configured = (process.env.BACKEND_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || '').trim();
-
-  if (!configured) {
-    return { error: 'BACKEND_API_BASE_URL is not set in Vercel. Add the public backend URL, then redeploy.' };
-  }
-
-  let backendUrl: URL;
-  try {
-    backendUrl = new URL(configured);
-  } catch {
-    return { error: `BACKEND_API_BASE_URL is not a valid URL: ${configured}` };
-  }
-
-  if (backendUrl.origin === requestOrigin) {
-    return { error: 'BACKEND_API_BASE_URL is pointing to this frontend Vercel app. It must point to the backend API deployment instead.' };
-  }
-
-  return { backendBaseUrl: backendUrl.origin };
-}
-
 export async function GET(request: Request) {
   const currentUrl = new URL(request.url);
-  const backend = getBackendBaseUrl(request.url);
+  let backendBaseUrl: string;
 
-  if ('error' in backend) {
+  try {
+    backendBaseUrl = getBackendApiBaseUrl(currentUrl.origin);
+  } catch (error) {
     const dashboardUrl = new URL('/dashboard', currentUrl.origin);
     dashboardUrl.searchParams.set('gmail', 'error');
-    dashboardUrl.searchParams.set('message', backend.error || 'gmail_connect_failed');
+    dashboardUrl.searchParams.set(
+      'message',
+      error instanceof Error ? error.message : 'gmail_connect_failed',
+    );
     return NextResponse.redirect(dashboardUrl, 302);
   }
 
-  const callbackUrl = new URL('/api/gmail/oauth/callback', backend.backendBaseUrl);
+  const callbackUrl = new URL('/api/gmail/oauth/callback', backendBaseUrl);
   currentUrl.searchParams.forEach((value, key) => callbackUrl.searchParams.set(key, value));
 
   return NextResponse.redirect(callbackUrl, 302);
