@@ -196,6 +196,9 @@ export default function DashboardClient() {
       <div className="panel">
         <h2>Gmail sync</h2>
         <p>Connect Gmail once, then pull the latest inbox messages for <strong>{sessionUser?.email || 'your signed-in account'}</strong> into that user's classified record store.</p>
+        <p className="subtle">
+          Inbox Outlaw requests read-only Gmail access. It reads recent inbox messages for classification only and does not send, edit, delete, archive, or mark messages as read. See the <a href="/privacy" style={{ textDecoration: 'underline' }}>Privacy Policy</a> or disconnect Gmail any time.
+        </p>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 16 }}>
           <button className="button secondary" onClick={onSeedDemo} disabled={seeding || loading}>{seeding ? 'Loading sample inbox...' : 'Load demo sample data'}</button>
           <button className="button" onClick={onConnectGmail} disabled={connecting}>{connecting ? 'Opening Google consent...' : gmailStatus?.connected ? 'Reconnect Gmail' : 'Connect Gmail'}</button>
