@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DEMO_EMAIL, getSessionUser } from "../lib/auth";
+import { getBackendDocsUrl } from "../lib/backend";
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -25,6 +26,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   }
 
   const sessionUser = await getSessionUser();
+  const backendDocsUrl = getBackendDocsUrl();
 
   return (
     <main className="page">
@@ -38,7 +40,7 @@ export default async function HomePage({ searchParams }: PageProps) {
             <Link href={sessionUser ? "/dashboard" : "/login"} className="button">
               {sessionUser ? "Open dashboard" : "Sign in for demo"}
             </Link>
-            <a href="http://localhost:8000/docs" className="button secondary">Backend docs</a>
+            <a href={backendDocsUrl} className="button secondary">Backend docs</a>
           </div>
           <p className="subtle" style={{ marginTop: 14 }}>
             Demo account preset: {DEMO_EMAIL}
