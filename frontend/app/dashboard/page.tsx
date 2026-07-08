@@ -13,19 +13,20 @@ export default async function DashboardPage() {
   return (
     <main className="page">
       <div className="container">
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link href="/" className="button secondary">Back</Link>
+          <Link href="/privacy" className="button secondary">Privacy</Link>
+          <Link href="/terms" className="button secondary">Terms</Link>
         </div>
 
         <section className="hero">
           <h1>Dashboard</h1>
           <p>
-            Connect Gmail, sync recent inbox messages, and store the classified results in a local
-            SQLite record store for <strong>{user.email}</strong> alongside anything you classify manually.
+            Connect Gmail, sync recent inbox messages, and store the classified results in the app's record store for <strong>{user.email}</strong> alongside anything you classify manually.
           </p>
         </section>
 
-        <Suspense fallback={<p className="subtle">Loading dashboard…</p>}>
+        <Suspense fallback={<p className="subtle">Loading dashboard...</p>}>
           <DashboardClient />
         </Suspense>
       </div>
