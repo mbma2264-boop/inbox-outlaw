@@ -43,7 +43,7 @@ export default function PrivacyPage() {
           <div>
             <h2>How we store data</h2>
             <p>
-              OAuth tokens are stored in secure, HTTP-only cookies so the app can reconnect to Gmail after you approve access. Synced message details and classification results are stored in the app record store for the signed-in demo session and are limited to the records shown in the dashboard.
+              OAuth tokens are stored in encrypted, secure, HTTP-only cookies so the app can reconnect to Gmail after you approve access. Synced message details and classification results are stored in the app record store for the signed-in demo session and are limited to the records shown in the dashboard.
             </p>
             <p>
               Inbox Outlaw uses HTTPS in production and keeps Gmail access limited to the read-only scope needed for inbox classification.
