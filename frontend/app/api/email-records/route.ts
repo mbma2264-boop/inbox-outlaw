@@ -1,19 +1,9 @@
 import { NextResponse } from 'next/server';
 import { addActivityLog } from '../../../lib/activity-log';
 import { requireSessionUser } from '../../../lib/auth';
+import { getBackendApiBaseUrl } from '../../../lib/backend';
 import { createEmailRecord, getInboxSummary, listEmailRecords } from '../../../lib/email-records';
 import type { ClassificationResult, EmailInput } from '../../../lib/types';
-
-const PRODUCTION_BACKEND_API_BASE_URL = 'https://inbox-outlaw-backend.onrender.com';
-
-function getBackendApiBaseUrl() {
-  const configuredUrl =
-    process.env.BACKEND_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_URL;
-
-  return (configuredUrl || PRODUCTION_BACKEND_API_BASE_URL).replace(/\/$/, '');
-}
 
 function validateEmailPayload(payload: Partial<EmailInput>): payload is EmailInput {
   return Boolean(
