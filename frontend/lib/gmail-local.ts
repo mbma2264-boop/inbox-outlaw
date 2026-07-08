@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import type { ClassificationResult, EmailInput, GmailSyncMessage } from './types';
 
@@ -7,6 +7,7 @@ export const GMAIL_STATE_COOKIE = 'inbox_guardian_gmail_state';
 
 const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 const DEFAULT_GMAIL_REDIRECT_PATH = '/api/auth/callback/google';
+const COOKIE_ENCRYPTION_VERSION = 'v1';
 
 type StoredTokens = {
   access_token?: string;
@@ -92,12 +93,56 @@ export function validateGmailEnv(requestOrigin: string) {
   };
 }
 
+function getCookieEncryptionKey() {
+  const { clientSecret } = requiredEnv();
+  const secret =
+    process.env.GMAIL_COOKIE_SECRET ||
+    process.env.COOKIE_SECRET ||
+    process.env.AUTH_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    clientSecret;
+
+  return secret ? createHash('sha256').update(secret).digest() : null;
+}
+
 function encodeCookie(value: unknown) {
-  return Buffer.from(JSON.stringify(value)).toString('base64url');
+  const key = getCookieEncryptionKey();
+  if (!key) return Buffer.from(JSON.stringify(value)).toString('base64url');
+
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return [
+    COOKIE_ENCRYPTION_VERSION,
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    encrypted.toString('base64url'),
+  ].join('.');
 }
 
 function decodeCookie<T>(value: string | undefined): T | null {
   if (!value) return null;
+
+  if (value.startsWith(`${COOKIE_ENCRYPTION_VERSION}.`)) {
+    const key = getCookieEncryptionKey();
+    const [, ivValue, tagValue, encryptedValue] = value.split('.');
+    if (!key || !ivValue || !tagValue || !encryptedValue) return null;
+
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64url'));
+      decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(encryptedValue, 'base64url')),
+        decipher.final(),
+      ]);
+      return JSON.parse(decrypted.toString('utf8')) as T;
+    } catch {
+      return null;
+    }
+  }
+
   try {
     return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as T;
   } catch {
