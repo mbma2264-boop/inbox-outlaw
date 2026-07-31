@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { handleGoogleCallback } from '../../../../../lib/gmail-local';
+import { handleProductionGoogleCallback } from '../../../../../lib/gmail-oauth-production';
 
 export const runtime = 'nodejs';
 
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const returnTo = await handleGoogleCallback(currentUrl.origin, code, state);
+    const returnTo = await handleProductionGoogleCallback(currentUrl.origin, code, state);
     const redirectUrl = safeReturnTo(returnTo, currentUrl.origin);
     redirectUrl.searchParams.set('gmail', 'connected');
     redirectUrl.searchParams.set('connected', 'true');
