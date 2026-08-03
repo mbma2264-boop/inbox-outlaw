@@ -30,20 +30,20 @@ export default function DashboardShell({ email, children }: { email: string; chi
           ))}
         </nav>
 
-        <div className="upgradeCard">
-          <span className="upgradeIcon">♛</span>
-          <strong>Go beyond basic protection</strong>
-          <p>Unlock advanced AI scanning, real-time alerts, and priority support.</p>
-          <button type="button">Upgrade to Pro</button>
+        <div className="proStatus">
+          <span className="brandShield mini">IO</span>
+          <div><strong>Protection active</strong><small>Your inbox. Your rules.</small></div>
+          <b>LIVE</b>
         </div>
-
-        <div className="proStatus"><span className="brandShield mini">IO</span><div><strong>Inbox Outlaw Pro</strong><small>Your inbox. Your rules.</small></div><b>Active</b></div>
       </aside>
 
       <section className="saasMain">
         <header className="topBar">
-          <label className="globalSearch"><span>⌕</span><input aria-label="Search emails" placeholder="Search emails, senders, keywords..." /></label>
-          <div className="topActions"><button className="upgradeTop">♛ Upgrade to Pro</button><button className="iconButton" aria-label="Notifications">♧<i>3</i></button><div className="accountChip"><span>{email.slice(0, 2).toUpperCase()}</span><div><strong>{email}</strong><small>Demo Account</small></div></div></div>
+          <div className="productStatus"><span className="statusDot" /> Gmail protection is active</div>
+          <div className="topActions">
+            <button className="iconButton" aria-label="Notifications">♧<i>3</i></button>
+            <div className="accountChip"><span>{email.slice(0, 2).toUpperCase()}</span><div><strong>{email}</strong><small>Signed in</small></div></div>
+          </div>
         </header>
         <div className="saasContent">{children}</div>
       </section>
