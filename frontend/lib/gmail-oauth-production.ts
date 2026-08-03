@@ -1,14 +1,14 @@
-import { randomBytes } from 'node:crypto';
-import { cookies } from 'next/headers';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { writeStoredTokens } from './gmail-local';
 
-const STATE_COOKIE = 'inbox_outlaw_gmail_oauth_state';
 const DEFAULT_REDIRECT_PATH = '/api/gmail/oauth/callback';
 const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
+const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 type OAuthState = {
-  state: string;
+  nonce: string;
   returnTo: string;
+  issuedAt: number;
 };
 
 type TokenPayload = {
@@ -27,8 +27,29 @@ function googleCredentials() {
   };
 }
 
+function oauthStateSecret() {
+  const secret = (
+    process.env.NEXTAUTH_SECRET ||
+    process.env.AUTH_SECRET ||
+    process.env.GOOGLE_CLIENT_SECRET ||
+    ''
+  ).trim();
+
+  if (!secret) {
+    throw new Error('Missing NEXTAUTH_SECRET (or AUTH_SECRET) for Gmail OAuth state signing.');
+  }
+
+  return secret;
+}
+
 function configuredOrigin(requestOrigin: string) {
-  const appUrl = (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || '').trim();
+  const appUrl = (
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXTAUTH_URL ||
+    ''
+  ).trim();
+
   if (appUrl && /^https?:\/\//i.test(appUrl)) return appUrl.replace(/\/$/, '');
   return requestOrigin.replace(/\/$/, '');
 }
@@ -47,17 +68,34 @@ function validateConfiguration(requestOrigin: string) {
   if (!clientId.endsWith('.apps.googleusercontent.com')) {
     throw new Error('GOOGLE_CLIENT_ID is not a valid Google OAuth web client ID.');
   }
+  oauthStateSecret();
   return { clientId, clientSecret, redirectUri: productionGmailRedirectUri(requestOrigin) };
 }
 
 function encodeState(value: OAuthState) {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const payload = Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const signature = createHmac('sha256', oauthStateSecret()).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
 }
 
-function decodeState(value: string | undefined): OAuthState | null {
+function decodeAndVerifyState(value: string | undefined): OAuthState | null {
   if (!value) return null;
+
+  const [payload, suppliedSignature] = value.split('.');
+  if (!payload || !suppliedSignature) return null;
+
+  const expectedSignature = createHmac('sha256', oauthStateSecret()).update(payload).digest('base64url');
+  const supplied = Buffer.from(suppliedSignature);
+  const expected = Buffer.from(expectedSignature);
+
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return null;
+
   try {
-    return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as OAuthState;
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as OAuthState;
+    if (!decoded.nonce || !decoded.returnTo || !Number.isFinite(decoded.issuedAt)) return null;
+    if (Date.now() - decoded.issuedAt > STATE_MAX_AGE_MS) return null;
+    if (decoded.issuedAt > Date.now() + 60_000) return null;
+    return decoded;
   } catch {
     return null;
   }
@@ -65,14 +103,10 @@ function decodeState(value: string | undefined): OAuthState | null {
 
 export async function createProductionGoogleAuthorizationUrl(requestOrigin: string, returnTo: string) {
   const { clientId, redirectUri } = validateConfiguration(requestOrigin);
-  const state = randomBytes(24).toString('base64url');
-  const cookieStore = await cookies();
-  cookieStore.set(STATE_COOKIE, encodeState({ state, returnTo }), {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 10 * 60,
+  const state = encodeState({
+    nonce: randomBytes(24).toString('base64url'),
+    returnTo,
+    issuedAt: Date.now(),
   });
 
   const authorizationUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -89,11 +123,9 @@ export async function createProductionGoogleAuthorizationUrl(requestOrigin: stri
 
 export async function handleProductionGoogleCallback(requestOrigin: string, code: string, state: string) {
   const { clientId, clientSecret, redirectUri } = validateConfiguration(requestOrigin);
-  const cookieStore = await cookies();
-  const savedState = decodeState(cookieStore.get(STATE_COOKIE)?.value);
-  cookieStore.delete(STATE_COOKIE);
+  const savedState = decodeAndVerifyState(state);
 
-  if (!savedState || savedState.state !== state) {
+  if (!savedState) {
     throw new Error('Google sign-in state did not match. Start the Gmail connection again.');
   }
 
