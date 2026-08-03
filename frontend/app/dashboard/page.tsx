@@ -1,35 +1,27 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import DashboardClient from "../../components/DashboardClient";
+import DashboardShell from "../../components/DashboardShell";
 import { getSessionUser } from "../../lib/auth";
 
 export default async function DashboardPage() {
   const user = await getSessionUser();
-  if (!user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
   return (
-    <main className="page">
-      <div className="container">
-        <div style={{ marginBottom: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Link href="/" className="button secondary">Back</Link>
-          <Link href="/privacy" className="button secondary">Privacy</Link>
-          <Link href="/terms" className="button secondary">Terms</Link>
+    <DashboardShell email={user.email}>
+      <section className="dashboardWelcome">
+        <div>
+          <p className="eyebrow">INBOX PROTECTION OVERVIEW</p>
+          <h1>Welcome back, Michelle.</h1>
+          <p>Your Gmail connection is active. Review threats, opportunities, and recent AI decisions below.</p>
         </div>
+        <div className="protectionLive"><span /> Protection live</div>
+      </section>
 
-        <section className="hero">
-          <h1>Dashboard</h1>
-          <p>
-            Connect Gmail, sync recent inbox messages, and store the classified results in the app's record store for <strong>{user.email}</strong> alongside anything you classify manually.
-          </p>
-        </section>
-
-        <Suspense fallback={<p className="subtle">Loading dashboard...</p>}>
-          <DashboardClient />
-        </Suspense>
-      </div>
-    </main>
+      <Suspense fallback={<div className="loadingSkeleton">Loading your protected inbox…</div>}>
+        <DashboardClient />
+      </Suspense>
+    </DashboardShell>
   );
 }
