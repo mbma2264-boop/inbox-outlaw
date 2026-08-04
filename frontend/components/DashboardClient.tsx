@@ -13,6 +13,12 @@ type DashboardPayload = { records: StoredEmailRecord[]; summary: InboxSummary; s
 type GmailSyncPayload = { importedCount: number; persistedCount: number; nextPageToken: string | null; records: StoredEmailRecord[]; summary: InboxSummary; sessionUser?: SessionUser };
 
 const emptySummary: InboxSummary = { total: 0, scams: 0, opportunities: 0, handled: 0 };
+const cardStyles = {
+  danger: { background: 'linear-gradient(135deg,#8b102f 0%,#3a0716 100%)', border: '2px solid #ff4d72', boxShadow: '0 0 32px rgba(255,77,114,.34)' },
+  success: { background: 'linear-gradient(135deg,#087a4c 0%,#043423 100%)', border: '2px solid #39e59a', boxShadow: '0 0 32px rgba(57,229,154,.28)' },
+  info: { background: 'linear-gradient(135deg,#125bbb 0%,#071f55 100%)', border: '2px solid #5db2ff', boxShadow: '0 0 32px rgba(93,178,255,.3)' },
+  purple: { background: 'linear-gradient(135deg,#7724b8 0%,#2f0b55 100%)', border: '2px solid #d18aff', boxShadow: '0 0 32px rgba(209,138,255,.3)' },
+} as const;
 
 export default function DashboardClient() {
   const searchParams = useSearchParams();
@@ -130,10 +136,10 @@ export default function DashboardClient() {
       </section>
 
       <section className="metricGrid">
-        <article className="metricCard danger"><div className="metricIcon">◆</div><div><span>Scams caught</span><strong>{summary.scams}</strong><small>High-risk messages identified</small></div></article>
-        <article className="metricCard success"><div className="metricIcon">✦</div><div><span>Opportunities</span><strong>{summary.opportunities}</strong><small>Potentially valuable emails</small></div></article>
-        <article className="metricCard info"><div className="metricIcon">✉</div><div><span>Emails processed</span><strong>{summary.total}</strong><small>Saved classification records</small></div></article>
-        <article className="metricCard purple"><div className="metricIcon">◎</div><div><span>Inbox health</span><strong>{healthScore}%</strong><small>{healthScore >= 80 ? 'Protection looks strong' : 'Review flagged messages'}</small></div></article>
+        <article className="metricCard danger" style={cardStyles.danger}><div className="metricIcon">◆</div><div><span>Scams caught</span><strong>{summary.scams}</strong><small>High-risk messages identified</small></div></article>
+        <article className="metricCard success" style={cardStyles.success}><div className="metricIcon">✦</div><div><span>Opportunities</span><strong>{summary.opportunities}</strong><small>Potentially valuable emails</small></div></article>
+        <article className="metricCard info" style={cardStyles.info}><div className="metricIcon">✉</div><div><span>Emails processed</span><strong>{summary.total}</strong><small>Saved classification records</small></div></article>
+        <article className="metricCard purple" style={cardStyles.purple}><div className="metricIcon">◎</div><div><span>Inbox health</span><strong>{healthScore}%</strong><small>{healthScore >= 80 ? 'Protection looks strong' : 'Review flagged messages'}</small></div></article>
       </section>
 
       <ThreatInsights records={records} />
