@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { addActivityLog } from '../../../lib/activity-log';
 import { requireSessionUser } from '../../../lib/auth';
 import { getBackendApiBaseUrl } from '../../../lib/backend';
-import { createEmailRecord, getInboxSummary, listEmailRecords } from '../../../lib/email-records';
-import type { ClassificationResult, EmailInput } from '../../../lib/types';
+import { createEmailRecord, getInboxSummary, listEmailRecords, updateEmailReview } from '../../../lib/email-records';
+import type { ClassificationResult, EmailInput, ReviewState } from '../../../lib/types';
 
 function validateEmailPayload(payload: Partial<EmailInput>): payload is EmailInput {
   return Boolean(
@@ -68,4 +68,33 @@ export async function POST(request: Request) {
     riskScore: result.risk_score,
   });
   return NextResponse.json({ result, record }, { status: 201 });
+}
+
+export async function PATCH(request: Request) {
+  let user;
+  try {
+    user = await requireSessionUser();
+  } catch {
+    return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
+  }
+
+  let payload: { id?: string; reviewState?: ReviewState };
+  try {
+    payload = (await request.json()) as { id?: string; reviewState?: ReviewState };
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON payload.' }, { status: 400 });
+  }
+
+  const allowed: ReviewState[] = ['safe', 'scam', 'opportunity', null];
+  if (!payload.id || !allowed.includes(payload.reviewState ?? null)) {
+    return NextResponse.json({ error: 'A valid record id and review state are required.' }, { status: 400 });
+  }
+
+  const record = await updateEmailReview(user.email, payload.id, payload.reviewState ?? null);
+  if (!record) {
+    return NextResponse.json({ error: 'Email record not found.' }, { status: 404 });
+  }
+
+  const summary = await getInboxSummary(user.email);
+  return NextResponse.json({ record, summary });
 }
