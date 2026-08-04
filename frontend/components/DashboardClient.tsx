@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import ActivityFeed from './ActivityFeed';
 import ClassifierForm from './ClassifierForm';
 import RecordsTable from './RecordsTable';
+import ThreatInsights from './ThreatInsights';
 import type { ActivityLogEntry, GmailStatus, InboxSummary, StoredEmailRecord } from '../lib/types';
 
 type SessionUser = { id?: string; email: string; isDemoUser: boolean };
@@ -134,6 +135,8 @@ export default function DashboardClient() {
         <article className="metricCard info"><div className="metricIcon">✉</div><div><span>Emails processed</span><strong>{summary.total}</strong><small>Saved classification records</small></div></article>
         <article className="metricCard purple"><div className="metricIcon">◎</div><div><span>Inbox health</span><strong>{healthScore}%</strong><small>{healthScore >= 80 ? 'Protection looks strong' : 'Review flagged messages'}</small></div></article>
       </section>
+
+      <ThreatInsights records={records} />
 
       <section className="controlPanel" id="settings">
         <div className="controlCopy"><span className="eyebrow">GMAIL CONTROL</span><h2>Sync and protect your inbox</h2><p>Read-only access is used to classify recent messages. Inbox Outlaw cannot send, delete, archive, or mark your mail as read.</p></div>
