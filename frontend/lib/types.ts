@@ -19,6 +19,8 @@ export type ClassificationResult = {
   used_llm: boolean;
 };
 
+export type ReviewState = 'safe' | 'scam' | 'opportunity' | null;
+
 export type StoredEmailRecord = {
   id: string;
   gmailMessageId: string | null;
@@ -32,6 +34,8 @@ export type StoredEmailRecord = {
   riskScore: number;
   confidenceScore: number;
   recommendedAction: string | null;
+  reviewState: ReviewState;
+  reviewedAt: string | null;
   receivedAt: string | null;
   createdAt: string;
   updatedAt: string;
