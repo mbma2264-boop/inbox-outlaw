@@ -4,6 +4,7 @@ import type {
   EmailInput,
   GmailSyncMessage,
   InboxSummary,
+  ReviewState,
   StoredEmailRecord,
 } from './types';
 
@@ -33,6 +34,8 @@ export async function createEmailRecord(
     riskScore: result.risk_score,
     confidenceScore: result.confidence_score,
     recommendedAction: result.recommended_action,
+    reviewState: null,
+    reviewedAt: null,
     receivedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -59,6 +62,8 @@ function mapSyncedMessageToStoredRecord(message: GmailSyncMessage) {
     riskScore: message.classification.risk_score,
     confidenceScore: message.classification.confidence_score,
     recommendedAction: message.classification.recommended_action,
+    reviewState: null,
+    reviewedAt: null,
     receivedAt,
     createdAt: receivedAt ?? now,
     updatedAt: now,
@@ -77,7 +82,17 @@ export async function upsertSyncedEmailRecords(
     const incoming = mapSyncedMessageToStoredRecord(message);
     const key = incoming.gmailMessageId || incoming.id;
     const current = byGmailId.get(key);
-    const record = current ? { ...current, ...incoming, id: current.id, createdAt: current.createdAt, updatedAt: new Date().toISOString() } : incoming;
+    const record = current
+      ? {
+          ...current,
+          ...incoming,
+          id: current.id,
+          createdAt: current.createdAt,
+          reviewState: current.reviewState ?? null,
+          reviewedAt: current.reviewedAt ?? null,
+          updatedAt: new Date().toISOString(),
+        }
+      : incoming;
     byGmailId.set(key, record);
     savedRecords.push(record);
   }
@@ -87,6 +102,28 @@ export async function upsertSyncedEmailRecords(
     .slice(0, 100);
   emailRecordStore.set(ownerEmail, merged);
   return savedRecords;
+}
+
+export async function updateEmailReview(
+  ownerEmail: string = DEFAULT_OWNER_EMAIL,
+  recordId: string,
+  reviewState: ReviewState,
+) {
+  const records = emailRecordStore.get(ownerEmail) || [];
+  const index = records.findIndex((record) => record.id === recordId);
+  if (index < 0) return null;
+
+  const now = new Date().toISOString();
+  const updated: StoredEmailRecord = {
+    ...records[index],
+    reviewState,
+    reviewedAt: reviewState ? now : null,
+    updatedAt: now,
+  };
+  const next = [...records];
+  next[index] = updated;
+  emailRecordStore.set(ownerEmail, next);
+  return updated;
 }
 
 export async function listEmailRecords(ownerEmail: string = DEFAULT_OWNER_EMAIL, limit = 12) {
@@ -103,15 +140,9 @@ function countByCategory(records: StoredEmailRecord[], categories: string[]) {
 export async function getInboxSummary(ownerEmail: string = DEFAULT_OWNER_EMAIL): Promise<InboxSummary> {
   const records = emailRecordStore.get(ownerEmail) || [];
   const total = countByCategory(records, []);
-  const scams = countByCategory(records, ['Scam', 'Likely Scam']);
-  const opportunities = countByCategory(records, ['Opportunity']);
-  const handled = countByCategory(records, [
-    'Scam',
-    'Likely Scam',
-    'Promotion',
-    'Transactional',
-    'Verified Business',
-  ]);
+  const scams = records.filter((record) => record.reviewState === 'scam' || ['Scam', 'Likely Scam'].includes(record.category)).length;
+  const opportunities = records.filter((record) => record.reviewState === 'opportunity' || record.category === 'Opportunity').length;
+  const handled = records.filter((record) => Boolean(record.reviewState) || ['Scam', 'Likely Scam', 'Promotion', 'Transactional', 'Verified Business'].includes(record.category)).length;
 
   return { total, scams, opportunities, handled };
 }
