@@ -1,5 +1,6 @@
 import "./globals.css";
 import "./polish.css";
+import "./actions.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
