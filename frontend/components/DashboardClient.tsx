@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import ActivityFeed from './ActivityFeed';
 import ClassifierForm from './ClassifierForm';
 import RecordsTable from './RecordsTable';
-import ThreatInsights from './ThreatInsights';
 import type { ActivityLogEntry, GmailStatus, InboxSummary, StoredEmailRecord } from '../lib/types';
 
 type SessionUser = { id?: string; email: string; isDemoUser: boolean };
@@ -13,12 +12,6 @@ type DashboardPayload = { records: StoredEmailRecord[]; summary: InboxSummary; s
 type GmailSyncPayload = { importedCount: number; persistedCount: number; nextPageToken: string | null; records: StoredEmailRecord[]; summary: InboxSummary; sessionUser?: SessionUser };
 
 const emptySummary: InboxSummary = { total: 0, scams: 0, opportunities: 0, handled: 0 };
-const cardStyles = {
-  danger: { background: 'linear-gradient(135deg,#8b102f 0%,#3a0716 100%)', border: '2px solid #ff4d72', boxShadow: '0 0 32px rgba(255,77,114,.34)' },
-  success: { background: 'linear-gradient(135deg,#087a4c 0%,#043423 100%)', border: '2px solid #39e59a', boxShadow: '0 0 32px rgba(57,229,154,.28)' },
-  info: { background: 'linear-gradient(135deg,#125bbb 0%,#071f55 100%)', border: '2px solid #5db2ff', boxShadow: '0 0 32px rgba(93,178,255,.3)' },
-  purple: { background: 'linear-gradient(135deg,#7724b8 0%,#2f0b55 100%)', border: '2px solid #d18aff', boxShadow: '0 0 32px rgba(209,138,255,.3)' },
-} as const;
 
 export default function DashboardClient() {
   const searchParams = useSearchParams();
@@ -129,37 +122,87 @@ export default function DashboardClient() {
   const healthScore = summary.total ? Math.max(0, Math.round(100 - (summary.scams / summary.total) * 70)) : 100;
 
   return (
-    <section className="dashboardStack">
-      <section className="dashboardHero">
-        <div><span className="eyebrow">COMMAND CENTER</span><h1>Inbox protection overview</h1><p>{sessionUser?.email || 'Loading account…'}</p></div>
-        <div className={`connectionPill ${gmailStatus?.connected ? 'connected' : ''}`}><span />{statusLoading ? 'Checking Gmail' : gmailStatus?.connected ? 'Gmail connected' : 'Gmail disconnected'}</div>
-      </section>
-
-      <section className="metricGrid">
-        <article className="metricCard danger" style={cardStyles.danger}><div className="metricIcon">◆</div><div><span>Scams caught</span><strong>{summary.scams}</strong><small>High-risk messages identified</small></div></article>
-        <article className="metricCard success" style={cardStyles.success}><div className="metricIcon">✦</div><div><span>Opportunities</span><strong>{summary.opportunities}</strong><small>Potentially valuable emails</small></div></article>
-        <article className="metricCard info" style={cardStyles.info}><div className="metricIcon">✉</div><div><span>Emails processed</span><strong>{summary.total}</strong><small>Saved classification records</small></div></article>
-        <article className="metricCard purple" style={cardStyles.purple}><div className="metricIcon">◎</div><div><span>Inbox health</span><strong>{healthScore}%</strong><small>{healthScore >= 80 ? 'Protection looks strong' : 'Review flagged messages'}</small></div></article>
-      </section>
-
-      <ThreatInsights records={records} />
-
-      <section className="controlPanel" id="settings">
-        <div className="controlCopy"><span className="eyebrow">GMAIL CONTROL</span><h2>Sync and protect your inbox</h2><p>Read-only access is used to classify recent messages. Inbox Outlaw cannot send, delete, archive, or mark your mail as read.</p></div>
-        <div className="controlActions">
-          <button className="button" onClick={onSyncGmail} disabled={syncing || statusLoading || !gmailStatus?.connected}>{syncing ? 'Syncing…' : 'Sync latest inbox'}</button>
-          <button className="button secondary" onClick={onConnectGmail} disabled={connecting}>{connecting ? 'Opening Google…' : gmailStatus?.connected ? 'Reconnect Gmail' : 'Connect Gmail'}</button>
-          <button className="button secondary quiet" onClick={onSeedDemo} disabled={seeding || loading}>{seeding ? 'Loading…' : 'Load demo data'}</button>
-          <button className="textButton" onClick={onDisconnectGmail} disabled={statusLoading || !gmailStatus?.connected}>Disconnect</button>
+    <section className="dashboardStack referenceDashboard">
+      <section className="referenceWelcome">
+        <div>
+          <h1>Welcome back, Michelle! <span aria-hidden="true">👋</span></h1>
+          <p>Here&apos;s what&apos;s happening with your inbox today.</p>
         </div>
-        <div className="controlStatus">{gmailMessage || gmailStatus?.note || 'Ready.'}</div>
+        <div className="syncCluster">
+          <span className={`miniSyncStatus ${gmailStatus?.connected ? 'connected' : ''}`}>
+            <i /> {statusLoading ? 'Checking Gmail' : gmailStatus?.connected ? 'Last sync active' : 'Gmail disconnected'}
+          </span>
+          <button className="syncNowButton" onClick={onSyncGmail} disabled={syncing || statusLoading || !gmailStatus?.connected}>
+            {syncing ? 'Syncing…' : '↻ Sync Now'}
+          </button>
+        </div>
+      </section>
+
+      <section className="referenceMetricGrid">
+        <article className="referenceMetric pinkMetric">
+          <div className="referenceMetricIcon">✉</div>
+          <div><span>Scams caught</span><strong>{summary.scams}</strong><small>{summary.scams ? 'Threats flagged for review' : 'No new scams — keep it up!'}</small></div>
+          <b className="metricGhost">⌁</b>
+        </article>
+        <article className="referenceMetric greenMetric">
+          <div className="referenceMetricIcon">◎</div>
+          <div><span>Opportunities</span><strong>{summary.opportunities}</strong><small>{summary.opportunities === 1 ? '1 new opportunity found' : `${summary.opportunities} opportunities found`}</small></div>
+          <b className="metricGhost">⌁</b>
+        </article>
+        <article className="referenceMetric roseMetric">
+          <div className="referenceMetricIcon">♟</div>
+          <div><span>Handled automatically</span><strong>{summary.handled}</strong><small>Saved you time and hassle</small></div>
+          <b className="metricGhost">ϟ</b>
+        </article>
+        <article className="referenceMetric blueMetric">
+          <div className="referenceMetricIcon">▣</div>
+          <div><span>Total processed</span><strong>{summary.total}</strong><small>Imported from Gmail</small></div>
+          <b className="metricGhost">⌁</b>
+        </article>
+      </section>
+
+      <section className="referenceToolbar" id="settings">
+        <div className="toolbarFilters">
+          <a href="#inbox" className="active">▣ All Emails</a>
+          <a href="#inbox">◇ Scams</a>
+          <a href="#inbox">◎ Opportunities</a>
+          <a href="#inbox">▤ Promotions</a>
+          <a href="#inbox">▧ Updates</a>
+          <a href="#inbox">◉ Social</a>
+          <a href="#inbox">◌ Security</a>
+        </div>
+        <div className="toolbarActions">
+          <span className="miniSearch">⌕ Search emails...</span>
+          <span className="filterButton">Filters ▽</span>
+        </div>
       </section>
 
       {error ? <div className="errorBanner">{error}</div> : null}
       {loading ? <div className="loadingSkeleton" /> : null}
-      <div id="classifier"><ClassifierForm onSaved={async () => { await loadDashboard(); await loadActivity(); }} /></div>
+
       <RecordsTable records={records} />
-      <div id="activity"><ActivityFeed items={activity} /></div>
+
+      <section className="referenceFooterStats">
+        <div><span>⌁</span><p><strong>Protected</strong><b>24/7</b><small>AI never sleeps</small></p></div>
+        <div><span>◫</span><p><strong>Database Updated</strong><b>Daily</b><small>Latest scam intelligence</small></p></div>
+        <div><span>♙</span><p><strong>You&apos;re In Control</strong><b>{healthScore}%</b><small>We give you the power</small></p></div>
+        <div className="missionStat"><span>♡</span><p><strong>Inbox Outlaw Mission</strong><small>Make the internet safer, one inbox at a time.</small></p></div>
+      </section>
+
+      <section className="hiddenUtilityPanels">
+        <div className="controlPanel">
+          <div className="controlCopy"><span className="eyebrow">GMAIL CONTROL</span><h2>Sync and protect your inbox</h2><p>Read-only access is used to classify recent messages. Inbox Outlaw cannot send, delete, archive, or mark your mail as read.</p></div>
+          <div className="controlActions">
+            <button className="button" onClick={onSyncGmail} disabled={syncing || statusLoading || !gmailStatus?.connected}>{syncing ? 'Syncing…' : 'Sync latest inbox'}</button>
+            <button className="button secondary" onClick={onConnectGmail} disabled={connecting}>{connecting ? 'Opening Google…' : gmailStatus?.connected ? 'Reconnect Gmail' : 'Connect Gmail'}</button>
+            <button className="button secondary quiet" onClick={onSeedDemo} disabled={seeding || loading}>{seeding ? 'Loading…' : 'Load demo data'}</button>
+            <button className="textButton" onClick={onDisconnectGmail} disabled={statusLoading || !gmailStatus?.connected}>Disconnect</button>
+          </div>
+          <div className="controlStatus">{gmailMessage || gmailStatus?.note || 'Ready.'}</div>
+        </div>
+        <div id="classifier"><ClassifierForm onSaved={async () => { await loadDashboard(); await loadActivity(); }} /></div>
+        <div id="activity"><ActivityFeed items={activity} /></div>
+      </section>
     </section>
   );
 }
