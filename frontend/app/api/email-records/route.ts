@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { addActivityLog } from '../../../lib/activity-log';
 import { requireSessionUser } from '../../../lib/auth';
 import { getBackendApiBaseUrl } from '../../../lib/backend';
-import { createEmailRecord, getInboxSummary, listEmailRecords, updateEmailReview } from '../../../lib/email-records';
+import { createEmailRecord, getInboxSummary, listEmailRecords, updateEmailReview, updateSenderReview } from '../../../lib/email-records';
 import type { ClassificationResult, EmailInput, ReviewState } from '../../../lib/types';
 
 function validateEmailPayload(payload: Partial<EmailInput>): payload is EmailInput {
@@ -78,19 +78,34 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
   }
 
-  let payload: { id?: string; reviewState?: ReviewState };
+  let payload: { id?: string; senderEmail?: string; reviewState?: ReviewState; applyToSender?: boolean };
   try {
-    payload = (await request.json()) as { id?: string; reviewState?: ReviewState };
+    payload = (await request.json()) as { id?: string; senderEmail?: string; reviewState?: ReviewState; applyToSender?: boolean };
   } catch {
     return NextResponse.json({ error: 'Invalid JSON payload.' }, { status: 400 });
   }
 
   const allowed: ReviewState[] = ['safe', 'scam', 'opportunity', null];
-  if (!payload.id || !allowed.includes(payload.reviewState ?? null)) {
-    return NextResponse.json({ error: 'A valid record id and review state are required.' }, { status: 400 });
+  const state = payload.reviewState ?? null;
+  if (!allowed.includes(state)) {
+    return NextResponse.json({ error: 'A valid review state is required.' }, { status: 400 });
   }
 
-  const record = await updateEmailReview(user.email, payload.id, payload.reviewState ?? null);
+  if (payload.applyToSender) {
+    if (!payload.senderEmail || (state !== 'safe' && state !== 'scam' && state !== null)) {
+      return NextResponse.json({ error: 'A sender email and safe, scam, or cleared state are required.' }, { status: 400 });
+    }
+    const records = await updateSenderReview(user.email, payload.senderEmail, state);
+    if (!records.length) return NextResponse.json({ error: 'No records found for that sender.' }, { status: 404 });
+    const summary = await getInboxSummary(user.email);
+    return NextResponse.json({ records, record: records[0], summary });
+  }
+
+  if (!payload.id) {
+    return NextResponse.json({ error: 'A valid record id is required.' }, { status: 400 });
+  }
+
+  const record = await updateEmailReview(user.email, payload.id, state);
   if (!record) {
     return NextResponse.json({ error: 'Email record not found.' }, { status: 404 });
   }
