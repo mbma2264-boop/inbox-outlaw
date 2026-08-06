@@ -82,17 +82,24 @@ export async function upsertSyncedEmailRecords(
     const incoming = mapSyncedMessageToStoredRecord(message);
     const key = incoming.gmailMessageId || incoming.id;
     const current = byGmailId.get(key);
+    const senderDecision = existing.find(
+      (record) => record.senderEmail.toLowerCase() === incoming.senderEmail.toLowerCase() && (record.reviewState === 'safe' || record.reviewState === 'scam'),
+    )?.reviewState ?? null;
     const record = current
       ? {
           ...current,
           ...incoming,
           id: current.id,
           createdAt: current.createdAt,
-          reviewState: current.reviewState ?? null,
-          reviewedAt: current.reviewedAt ?? null,
+          reviewState: current.reviewState ?? senderDecision,
+          reviewedAt: current.reviewedAt ?? (senderDecision ? new Date().toISOString() : null),
           updatedAt: new Date().toISOString(),
         }
-      : incoming;
+      : {
+          ...incoming,
+          reviewState: senderDecision,
+          reviewedAt: senderDecision ? new Date().toISOString() : null,
+        };
     byGmailId.set(key, record);
     savedRecords.push(record);
   }
@@ -124,6 +131,32 @@ export async function updateEmailReview(
   next[index] = updated;
   emailRecordStore.set(ownerEmail, next);
   return updated;
+}
+
+export async function updateSenderReview(
+  ownerEmail: string = DEFAULT_OWNER_EMAIL,
+  senderEmail: string,
+  reviewState: Extract<ReviewState, 'safe' | 'scam'> | null,
+) {
+  const records = emailRecordStore.get(ownerEmail) || [];
+  const normalized = senderEmail.trim().toLowerCase();
+  const now = new Date().toISOString();
+  let changed = 0;
+
+  const next = records.map((record) => {
+    if (record.senderEmail.trim().toLowerCase() !== normalized) return record;
+    changed += 1;
+    return {
+      ...record,
+      reviewState,
+      reviewedAt: reviewState ? now : null,
+      updatedAt: now,
+    } satisfies StoredEmailRecord;
+  });
+
+  if (!changed) return [];
+  emailRecordStore.set(ownerEmail, next);
+  return next.filter((record) => record.senderEmail.trim().toLowerCase() === normalized);
 }
 
 export async function listEmailRecords(ownerEmail: string = DEFAULT_OWNER_EMAIL, limit = 12) {
