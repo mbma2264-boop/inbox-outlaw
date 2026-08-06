@@ -43,6 +43,16 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
   useEffect(() => {
     const onFilter = (event: Event) => {
       const requested = (event as CustomEvent<string>).detail || 'All';
+      if (requested === 'Safe') {
+        setCategory('All');
+        setQuery('');
+        return;
+      }
+      if (requested === 'Blocked') {
+        setCategory('All');
+        setQuery('');
+        return;
+      }
       const available = new Set(records.map((record) => record.category));
       setCategory(requested === 'All' || available.has(requested) ? requested : 'All');
     };
@@ -62,18 +72,34 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
     return matchesCategory && haystack.includes(query.toLowerCase());
   }), [records, query, category]);
 
-  async function saveReview(record: StoredEmailRecord, state: Exclude<ReviewState, null>) {
+  async function saveReview(record: StoredEmailRecord, state: ReviewState, applyToSender = false) {
     try {
-      setSaving(true); setNotice('Saving review…');
+      setSaving(true);
+      setNotice(applyToSender ? 'Updating sender list…' : state ? 'Saving review…' : 'Removing review…');
       const response = await fetch('/api/email-records', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: record.id, reviewState: state }),
+        body: JSON.stringify({ id: record.id, senderEmail: record.senderEmail, reviewState: state, applyToSender }),
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string; record?: StoredEmailRecord } | null;
+      const payload = (await response.json().catch(() => null)) as { error?: string; record?: StoredEmailRecord; records?: StoredEmailRecord[] } | null;
       if (!response.ok || !payload?.record) throw new Error(payload?.error || 'Unable to save review.');
-      setReviewState((current) => ({ ...current, [record.id]: state }));
+
+      if (applyToSender && payload.records) {
+        setReviewState((current) => {
+          const next = { ...current };
+          for (const changed of payload.records || []) next[changed.id] = changed.reviewState;
+          return next;
+        });
+      } else {
+        setReviewState((current) => ({ ...current, [record.id]: state }));
+      }
+
       setSelected(payload.record);
-      setNotice(state === 'safe' ? 'Marked safe and saved.' : state === 'scam' ? 'Reported as scam and saved.' : 'Saved as an opportunity.');
+      if (applyToSender) {
+        setNotice(state === 'safe' ? 'Sender added to Safe Senders.' : state === 'scam' ? 'Sender added to Blocked Senders.' : 'Sender decision removed.');
+      } else {
+        setNotice(state === 'safe' ? 'Marked safe and saved.' : state === 'scam' ? 'Reported as scam and saved.' : state === 'opportunity' ? 'Saved as an opportunity.' : 'Review decision removed.');
+      }
+      window.dispatchEvent(new Event('inbox-records-updated'));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Unable to save review.');
     } finally { setSaving(false); }
@@ -96,7 +122,7 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
           {filtered.map((record) => { const tone = categoryTone[record.category] || '#fff'; const reviewed = reviewState[record.id]; return (
             <tr key={record.id} onClick={() => { setSelected({ ...record, reviewState: reviewed ?? null }); setNotice(''); }} tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && setSelected(record)}>
               <td><div className="senderCell"><span className="senderAvatar" style={{ borderColor: tone }}>{initials(record.senderName, record.senderEmail)}</span><div><strong>{record.senderName || 'Unknown sender'}</strong><small>{record.senderEmail}</small></div></div></td>
-              <td><strong>{record.subject}</strong><small className="clamp2">{record.bodyText}</small>{reviewed ? <small className={`reviewTag ${reviewed}`}>{reviewed === 'safe' ? '✓ Reviewed safe' : reviewed === 'scam' ? '⚠ Reported scam' : '★ Saved opportunity'}</small> : null}</td>
+              <td><strong>{record.subject}</strong><small className="clamp2">{record.bodyText}</small>{reviewed ? <small className={`reviewTag ${reviewed}`}>{reviewed === 'safe' ? '✓ Safe sender' : reviewed === 'scam' ? '⊘ Blocked sender' : '★ Saved opportunity'}</small> : null}</td>
               <td><span className="categoryBadge" style={{ color: tone, borderColor: `${tone}66`, background: `${tone}14` }}>{record.category}</span></td>
               <td><div className="scoreCell"><strong>{record.riskScore}/100</strong><span><i style={{ width: `${record.riskScore}%`, background: record.riskScore >= 70 ? '#ff4d6d' : record.riskScore >= 40 ? '#ffb020' : '#36d399' }} /></span></div></td>
               <td><div className="scoreCell"><strong>{record.confidenceScore}%</strong><span><i style={{ width: `${record.confidenceScore}%` }} /></span></div></td>
@@ -112,8 +138,10 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
         <div className="analysisBlock"><h3>Recommended action</h3><p>{selected.recommendedAction || 'Review carefully before taking action.'}</p></div>
         <div className="analysisBlock"><h3>Email preview</h3><p>{selected.bodyText || 'No body preview available.'}</p></div>
         {notice ? <div className="actionNotice">{notice}</div> : null}
-        <div className="drawerActions three"><button disabled={saving} className="safeAction" onClick={() => void saveReview(selected, 'safe')}>Mark safe</button><button disabled={saving} className="dangerAction" onClick={() => void saveReview(selected, 'scam')}>Report scam</button><button disabled={saving} className="copyAction" onClick={() => void saveReview(selected, 'opportunity')}>Save opportunity</button></div>
-        <button className="copyAction fullWidth" onClick={() => void copyAnalysis(selected)}>Copy analysis</button><p className="sessionNote">Review labels are saved to the Inbox Outlaw record. They do not change or delete the original Gmail message.</p>
+        <div className="drawerActions three"><button disabled={saving} className="safeAction" onClick={() => void saveReview(selected, 'safe')}>Mark email safe</button><button disabled={saving} className="dangerAction" onClick={() => void saveReview(selected, 'scam')}>Report email scam</button><button disabled={saving} className="copyAction" onClick={() => void saveReview(selected, 'opportunity')}>Save opportunity</button></div>
+        <div className="drawerActions"><button disabled={saving} className="safeAction" onClick={() => void saveReview(selected, 'safe', true)}>Add sender to Safe Senders</button><button disabled={saving} className="dangerAction" onClick={() => void saveReview(selected, 'scam', true)}>Add sender to Blocked Senders</button></div>
+        {selected.reviewState ? <button disabled={saving} className="copyAction fullWidth" onClick={() => void saveReview(selected, null, selected.reviewState === 'safe' || selected.reviewState === 'scam')}>Undo current decision</button> : null}
+        <button className="copyAction fullWidth" onClick={() => void copyAnalysis(selected)}>Copy analysis</button><p className="sessionNote">Safe and blocked sender decisions apply inside Inbox Outlaw. They do not delete, move, or alter the original Gmail message.</p>
       </aside></div> : null}
     </section>
   );
