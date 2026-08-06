@@ -68,7 +68,8 @@ export async function POST(request: Request) {
       : rawMessage;
 
     try {
-      await addActivityLog(user.email, 'gmail_sync_failed', publicMessage, {
+      await addActivityLog(user.email, 'gmail_synced', publicMessage, {
+        outcome: 'failed',
         technicalMessage: rawMessage,
         needsReconnect,
       });
