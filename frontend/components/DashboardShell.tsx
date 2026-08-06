@@ -1,20 +1,21 @@
 'use client';
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
-type NavItem = { label: string; icon: string; target: string; badge?: string; filter?: string };
+type NavItem = { label: string; icon: string; target: string; filter?: string };
+type LiveCounts = { total: number; scams: number; opportunities: number; safe: number; blocked: number };
 
 const navigation: NavItem[] = [
   { label: "Dashboard", icon: "⌂", target: "top" },
-  { label: "Inbox", icon: "✉", target: "inbox", badge: "10", filter: "All" },
-  { label: "Scam Alerts", icon: "◈", target: "inbox", badge: "0", filter: "Scam" },
-  { label: "Opportunities", icon: "◎", target: "inbox", badge: "1", filter: "Opportunity" },
-  { label: "Safe Senders", icon: "✓", target: "inbox", badge: "18", filter: "Verified Business" },
-  { label: "Blocked Senders", icon: "⊘", target: "inbox", badge: "7", filter: "Likely Scam" },
+  { label: "Inbox", icon: "✉", target: "inbox", filter: "All" },
+  { label: "Scam Alerts", icon: "◈", target: "inbox", filter: "Scam" },
+  { label: "Opportunities", icon: "◎", target: "inbox", filter: "Opportunity" },
+  { label: "Safe Senders", icon: "✓", target: "inbox", filter: "Verified Business" },
+  { label: "Blocked Senders", icon: "⊘", target: "inbox", filter: "Likely Scam" },
   { label: "Reports", icon: "▥", target: "activity" },
   { label: "Rules & Filters", icon: "▽", target: "classifier" },
-  { label: "AI Training", icon: "✦", target: "classifier", badge: "NEW" },
+  { label: "AI Training", icon: "✦", target: "classifier" },
   { label: "Settings", icon: "⚙", target: "settings" },
   { label: "Help Center", icon: "?", target: "activity" },
 ];
@@ -27,11 +28,53 @@ function scrollToTarget(target: string) {
   document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function badgeFor(label: string, counts: LiveCounts) {
+  if (label === "Inbox") return counts.total;
+  if (label === "Scam Alerts") return counts.scams;
+  if (label === "Opportunities") return counts.opportunities;
+  if (label === "Safe Senders") return counts.safe;
+  if (label === "Blocked Senders") return counts.blocked;
+  if (label === "AI Training") return "NEW";
+  return null;
+}
+
 export default function DashboardShell({ email, children }: { email: string; children: ReactNode }) {
   const [active, setActive] = useState("Dashboard");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [counts, setCounts] = useState<LiveCounts>({ total: 0, scams: 0, opportunities: 0, safe: 0, blocked: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCounts() {
+      try {
+        const response = await fetch('/api/email-records', { cache: 'no-store' });
+        const payload = await response.json().catch(() => null) as { records?: Array<{ category?: string; reviewState?: string | null }>; summary?: { total?: number; scams?: number; opportunities?: number } } | null;
+        if (!response.ok || !payload || cancelled) return;
+        const records = payload.records || [];
+        setCounts({
+          total: Number(payload.summary?.total ?? records.length),
+          scams: Number(payload.summary?.scams ?? records.filter((record) => record.category === 'Scam' || record.category === 'Likely Scam').length),
+          opportunities: Number(payload.summary?.opportunities ?? records.filter((record) => record.category === 'Opportunity').length),
+          safe: records.filter((record) => record.reviewState === 'safe' || record.category === 'Verified Business').length,
+          blocked: records.filter((record) => record.reviewState === 'scam').length,
+        });
+      } catch {
+        // Keep the last confirmed counts when the dashboard API is temporarily unavailable.
+      }
+    }
+
+    void loadCounts();
+    const timer = window.setInterval(loadCounts, 15000);
+    window.addEventListener('focus', loadCounts);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', loadCounts);
+    };
+  }, []);
 
   function activate(item: NavItem) {
     setActive(item.label);
@@ -54,11 +97,14 @@ export default function DashboardShell({ email, children }: { email: string; chi
         </Link>
 
         <nav className="sideNav" aria-label="Dashboard navigation">
-          {navigation.map((item) => (
-            <button key={item.label} type="button" onClick={() => activate(item)} className={active === item.label ? "active" : ""}>
-              <span className="navIcon">{item.icon}</span><span>{item.label}</span>{item.badge ? <b>{item.badge}</b> : null}
-            </button>
-          ))}
+          {navigation.map((item) => {
+            const badge = badgeFor(item.label, counts);
+            return (
+              <button key={item.label} type="button" onClick={() => activate(item)} className={active === item.label ? "active" : ""}>
+                <span className="navIcon">{item.icon}</span><span>{item.label}</span>{badge !== null ? <b>{badge}</b> : null}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="proStatus">
@@ -74,11 +120,11 @@ export default function DashboardShell({ email, children }: { email: string; chi
           <div className="topActions">
             <div className="productStatus"><span className="statusDot" />Protection active</div>
             <div className="menuWrap">
-              <button type="button" className="iconButton" aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)}>◌<i>3</i></button>
-              {notificationsOpen ? <div className="headerMenu"><strong>Notifications</strong><p>Gmail protection is active.</p><p>Open the inbox to review classified messages.</p></div> : null}
+              <button type="button" className="iconButton" aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)}>◌<i>{counts.scams}</i></button>
+              {notificationsOpen ? <div className="headerMenu"><strong>Notifications</strong><p>{counts.scams ? `${counts.scams} scam alert${counts.scams === 1 ? '' : 's'} need review.` : 'No scam alerts need review.'}</p><p>{counts.total} email records are currently protected.</p></div> : null}
             </div>
             <div className="menuWrap">
-              <button type="button" className="accountChip" onClick={() => setAccountOpen((open) => !open)}><span>{email.slice(0, 2).toUpperCase()}</span><div><strong>{email}</strong><small>Demo Account</small></div><i>⌄</i></button>
+              <button type="button" className="accountChip" onClick={() => setAccountOpen((open) => !open)}><span>{email.slice(0, 2).toUpperCase()}</span><div><strong>{email}</strong><small>Inbox Outlaw Account</small></div><i>⌄</i></button>
               {accountOpen ? <div className="headerMenu accountMenu"><strong>Account</strong><p>{email}</p><a href="/api/auth/logout">Log out</a></div> : null}
             </div>
           </div>
