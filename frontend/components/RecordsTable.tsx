@@ -40,6 +40,21 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
     setReviewState(Object.fromEntries(records.map((record) => [record.id, record.reviewState ?? null])));
   }, [records]);
 
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      const requested = (event as CustomEvent<string>).detail || 'All';
+      const available = new Set(records.map((record) => record.category));
+      setCategory(requested === 'All' || available.has(requested) ? requested : 'All');
+    };
+    const onSearch = (event: Event) => setQuery((event as CustomEvent<string>).detail || '');
+    window.addEventListener('inbox-filter', onFilter);
+    window.addEventListener('inbox-search', onSearch);
+    return () => {
+      window.removeEventListener('inbox-filter', onFilter);
+      window.removeEventListener('inbox-search', onSearch);
+    };
+  }, [records]);
+
   const categories = useMemo(() => ['All', ...Array.from(new Set(records.map((record) => record.category)))], [records]);
   const filtered = useMemo(() => records.filter((record) => {
     const matchesCategory = category === 'All' || record.category === category;
@@ -75,7 +90,7 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
         <div><span className="eyebrow">SMART INBOX</span><h2>Recent classified emails</h2><p className="subtle">Select a message to see its risk explanation and recommended action.</p></div>
         <label className="tableSearch"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search sender or subject" /></label>
       </div>
-      <div className="filterRow" aria-label="Email category filters">{categories.map((item) => <button key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div>
+      <div className="filterRow" aria-label="Email category filters">{categories.map((item) => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div>
       {records.length === 0 ? <div className="emptyState"><strong>No saved emails yet</strong><p>Sync Gmail and your classified messages will appear here.</p></div> : filtered.length === 0 ? <div className="emptyState"><strong>No matching emails</strong><p>Change the search term or category filter.</p></div> : (
         <div className="recordsTableWrap"><table className="recordsTable modernTable"><thead><tr><th>Sender</th><th>Subject</th><th>Category</th><th>Risk</th><th>Confidence</th><th>Received</th></tr></thead><tbody>
           {filtered.map((record) => { const tone = categoryTone[record.category] || '#fff'; const reviewed = reviewState[record.id]; return (
