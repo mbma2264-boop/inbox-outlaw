@@ -13,11 +13,11 @@ const navigation: NavItem[] = [
   { label: "Opportunities", icon: "◎", target: "inbox", filter: "Opportunity" },
   { label: "Safe Senders", icon: "✓", target: "inbox", filter: "Verified Business" },
   { label: "Blocked Senders", icon: "⊘", target: "inbox", filter: "Likely Scam" },
-  { label: "Reports", icon: "▥", target: "activity" },
+  { label: "Reports", icon: "▥", target: "reports" },
   { label: "Rules & Filters", icon: "▽", target: "classifier" },
   { label: "AI Training", icon: "✦", target: "classifier" },
-  { label: "Settings", icon: "⚙", target: "settings" },
-  { label: "Help Center", icon: "?", target: "activity" },
+  { label: "Settings", icon: "⚙", target: "settings-panel" },
+  { label: "Help Center", icon: "?", target: "help-center" },
 ];
 
 function scrollToTarget(target: string) {
@@ -43,6 +43,8 @@ export default function DashboardShell({ email, children }: { email: string; chi
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [dailyAlerts, setDailyAlerts] = useState(true);
+  const [autoSync, setAutoSync] = useState(false);
   const [counts, setCounts] = useState<LiveCounts>({ total: 0, scams: 0, opportunities: 0, safe: 0, blocked: 0 });
 
   useEffect(() => {
@@ -69,10 +71,12 @@ export default function DashboardShell({ email, children }: { email: string; chi
     void loadCounts();
     const timer = window.setInterval(loadCounts, 15000);
     window.addEventListener('focus', loadCounts);
+    window.addEventListener('inbox-records-updated', loadCounts);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener('focus', loadCounts);
+      window.removeEventListener('inbox-records-updated', loadCounts);
     };
   }, []);
 
@@ -87,6 +91,9 @@ export default function DashboardShell({ email, children }: { email: string; chi
     window.dispatchEvent(new CustomEvent("inbox-search", { detail: value }));
     if (value.trim()) scrollToTarget("inbox");
   }
+
+  const reviewed = counts.safe + counts.blocked;
+  const reviewRate = counts.total ? Math.min(100, Math.round((reviewed / counts.total) * 100)) : 0;
 
   return (
     <main className="saasApp" id="top">
@@ -129,7 +136,52 @@ export default function DashboardShell({ email, children }: { email: string; chi
             </div>
           </div>
         </header>
-        <div className="saasContent">{children}</div>
+
+        <div className="saasContent">
+          {children}
+
+          <section className="controlPanel" id="reports">
+            <div className="controlCopy">
+              <span className="eyebrow">REPORTS</span>
+              <h2>Inbox protection report</h2>
+              <p>Live totals from the email records currently saved to this Inbox Outlaw account.</p>
+            </div>
+            <div className="referenceMetricGrid">
+              <article className="referenceMetric pinkMetric"><div><span>Threat alerts</span><strong>{counts.scams}</strong><small>Scam-classified or reported records</small></div></article>
+              <article className="referenceMetric greenMetric"><div><span>Safe senders</span><strong>{counts.safe}</strong><small>Messages or senders reviewed safe</small></div></article>
+              <article className="referenceMetric blueMetric"><div><span>Reviewed</span><strong>{reviewRate}%</strong><small>{reviewed} of {counts.total} records reviewed</small></div></article>
+              <article className="referenceMetric roseMetric"><div><span>Opportunities</span><strong>{counts.opportunities}</strong><small>Potential business opportunities found</small></div></article>
+            </div>
+          </section>
+
+          <section className="controlPanel" id="settings-panel">
+            <div className="controlCopy">
+              <span className="eyebrow">SETTINGS</span>
+              <h2>Protection preferences</h2>
+              <p>These controls manage the dashboard experience. Gmail access remains read-only.</p>
+            </div>
+            <div className="controlActions">
+              <button type="button" className={`button secondary ${dailyAlerts ? '' : 'quiet'}`} onClick={() => setDailyAlerts((enabled) => !enabled)}>{dailyAlerts ? 'Daily alerts enabled' : 'Daily alerts disabled'}</button>
+              <button type="button" className={`button secondary ${autoSync ? '' : 'quiet'}`} onClick={() => setAutoSync((enabled) => !enabled)}>{autoSync ? 'Auto-sync preference on' : 'Auto-sync preference off'}</button>
+              <a className="button secondary" href="/api/auth/logout">Log out securely</a>
+            </div>
+            <div className="controlStatus">Connected account: {email}. Inbox Outlaw does not send, delete, archive, or mark Gmail messages as read.</div>
+          </section>
+
+          <section className="controlPanel" id="help-center">
+            <div className="controlCopy">
+              <span className="eyebrow">HELP CENTER</span>
+              <h2>Using Inbox Outlaw</h2>
+              <p>Sync Gmail, open a classified message, review the warning signals, then mark the email or sender as safe, blocked, scam, or opportunity.</p>
+            </div>
+            <div className="controlActions">
+              <button type="button" className="button secondary" onClick={() => scrollToTarget('inbox')}>Open smart inbox</button>
+              <button type="button" className="button secondary" onClick={() => scrollToTarget('settings-panel')}>Open settings</button>
+              <a className="button secondary" href="mailto:support@inboxoutlaw.app">Contact support</a>
+            </div>
+            <div className="controlStatus">For suspicious messages, do not click links, send money, share passwords, or provide verification codes until the sender is independently verified.</div>
+          </section>
+        </div>
       </section>
     </main>
   );
