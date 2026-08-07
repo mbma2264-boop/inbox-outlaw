@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from "react";
 import type { ClassificationResult, StoredEmailRecord } from "../lib/types";
 
@@ -40,7 +41,9 @@ export default function ClassifierForm({ onSaved }: { onSaved?: () => void | Pro
     try {
       const response = await fetch(`/api/email-records`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           sender_name: senderName,
           sender_email: senderEmail,
@@ -70,10 +73,13 @@ export default function ClassifierForm({ onSaved }: { onSaved?: () => void | Pro
   }
 
   return (
-    <div className="panel" id="classifier">
+    <div className="panel">
       <h2>Try the classifier</h2>
-      <p>Analyze a sample email and save the result to your protected Supabase inbox records.</p>
-      <p><a className="button secondary" href="/rules">View active rules and filters</a></p>
+      <p>Analyze a sample email, then save the labeled result into your protected Supabase inbox records.</p>
+      <div className="controlActions" style={{ marginBottom: 18 }}>
+        <Link className="button secondary" href="/rules">View active rules and filters</Link>
+        <Link className="button secondary" href="/training">Open AI training history</Link>
+      </div>
 
       <form onSubmit={onSubmit}>
         <label>Sender name</label>
@@ -107,7 +113,9 @@ export default function ClassifierForm({ onSaved }: { onSaved?: () => void | Pro
       {savedRecord ? (
         <div className="card" style={{ marginTop: 16 }}>
           <h3>Saved to inbox records</h3>
-          <p>Record ID: <span className="subtle">{savedRecord.id}</span></p>
+          <p>
+            Record ID: <span className="subtle">{savedRecord.id}</span>
+          </p>
           <p>Saved at: {new Date(savedRecord.createdAt).toLocaleString()}</p>
         </div>
       ) : null}
@@ -125,13 +133,23 @@ export default function ClassifierForm({ onSaved }: { onSaved?: () => void | Pro
 
             <div className="card">
               <h3>Why it was labeled this way</h3>
-              <ul>{result.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+              <ul>
+                {result.reasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
             </div>
           </div>
 
           <div className="card" style={{ marginTop: 16 }}>
             <h3>Matched rules</h3>
-            <div>{result.matched_rules.map((rule) => <span className="badge" key={rule.rule_id}>{rule.rule_id} ({rule.weight})</span>)}</div>
+            <div>
+              {result.matched_rules.map((rule) => (
+                <span className="badge" key={rule.rule_id}>
+                  {rule.rule_id} ({rule.weight})
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
