@@ -47,7 +47,31 @@ export default function DashboardShell({ email, children }: { email: string; chi
   const [autoSync, setAutoSync] = useState(false);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [lastAutoSync, setLastAutoSync] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState('');
   const [counts, setCounts] = useState<LiveCounts>({ total: 0, scams: 0, opportunities: 0, safe: 0, blocked: 0 });
+
+  async function requestGmailSync(reloadAfter = true) {
+    try {
+      setSyncStatus('Syncing Gmail…');
+      const response = await fetch('/api/gmail/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ limit: 10 }),
+      });
+      const payload = await response.json().catch(() => null) as { error?: string; importedCount?: number; persistedCount?: number } | null;
+      if (!response.ok) throw new Error(payload?.error || `Gmail sync returned ${response.status}.`);
+
+      const timestamp = new Date().toISOString();
+      window.localStorage.setItem('inbox-outlaw-last-auto-sync', timestamp);
+      setLastAutoSync(timestamp);
+      setSyncStatus(`Synced ${payload?.importedCount ?? 0} messages.`);
+      window.dispatchEvent(new CustomEvent('inbox-records-updated'));
+      if (reloadAfter) window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      setSyncStatus(error instanceof Error ? error.message : 'Unable to sync Gmail.');
+    }
+  }
 
   useEffect(() => {
     try {
@@ -67,15 +91,7 @@ export default function DashboardShell({ email, children }: { email: string; chi
 
   useEffect(() => {
     if (!preferencesLoaded || !autoSync) return;
-
-    const requestSync = () => {
-      const timestamp = new Date().toISOString();
-      window.dispatchEvent(new CustomEvent('gmail-auto-sync-request'));
-      window.localStorage.setItem('inbox-outlaw-last-auto-sync', timestamp);
-      setLastAutoSync(timestamp);
-    };
-
-    const timer = window.setInterval(requestSync, 5 * 60 * 1000);
+    const timer = window.setInterval(() => void requestGmailSync(true), 5 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, [autoSync, preferencesLoaded]);
 
@@ -173,11 +189,7 @@ export default function DashboardShell({ email, children }: { email: string; chi
           {children}
 
           <section className="controlPanel" id="reports">
-            <div className="controlCopy">
-              <span className="eyebrow">REPORTS</span>
-              <h2>Inbox protection report</h2>
-              <p>Live totals from the email records currently saved to this Inbox Outlaw account.</p>
-            </div>
+            <div className="controlCopy"><span className="eyebrow">REPORTS</span><h2>Inbox protection report</h2><p>Live totals from the email records currently saved to this Inbox Outlaw account.</p></div>
             <div className="referenceMetricGrid">
               <article className="referenceMetric pinkMetric"><div><span>Threat alerts</span><strong>{counts.scams}</strong><small>Scam-classified or reported records</small></div></article>
               <article className="referenceMetric greenMetric"><div><span>Safe senders</span><strong>{counts.safe}</strong><small>Messages or senders reviewed safe</small></div></article>
@@ -187,26 +199,18 @@ export default function DashboardShell({ email, children }: { email: string; chi
           </section>
 
           <section className="controlPanel" id="settings-panel">
-            <div className="controlCopy">
-              <span className="eyebrow">SETTINGS</span>
-              <h2>Protection preferences</h2>
-              <p>Preferences are saved in this browser. Gmail access remains read-only.</p>
-            </div>
+            <div className="controlCopy"><span className="eyebrow">SETTINGS</span><h2>Protection preferences</h2><p>Preferences are saved in this browser. Gmail access remains read-only.</p></div>
             <div className="controlActions">
               <button type="button" className={`button secondary ${dailyAlerts ? '' : 'quiet'}`} onClick={() => setDailyAlerts((enabled) => !enabled)}>{dailyAlerts ? 'Daily alerts enabled' : 'Daily alerts disabled'}</button>
               <button type="button" className={`button secondary ${autoSync ? '' : 'quiet'}`} onClick={() => setAutoSync((enabled) => !enabled)}>{autoSync ? 'Auto-sync every 5 minutes' : 'Auto-sync is off'}</button>
-              <button type="button" className="button secondary" onClick={() => window.dispatchEvent(new CustomEvent('gmail-auto-sync-request'))}>Sync Gmail now</button>
+              <button type="button" className="button secondary" onClick={() => void requestGmailSync(true)}>Sync Gmail now</button>
               <a className="button secondary" href="/api/auth/logout">Log out securely</a>
             </div>
-            <div className="controlStatus">Connected account: {email}. {lastAutoSync ? `Last automatic sync request: ${new Date(lastAutoSync).toLocaleString()}. ` : ''}Inbox Outlaw does not send, delete, archive, or mark Gmail messages as read.</div>
+            <div className="controlStatus">{syncStatus ? `${syncStatus} ` : ''}Connected account: {email}. {lastAutoSync ? `Last sync: ${new Date(lastAutoSync).toLocaleString()}. ` : ''}Inbox Outlaw does not send, delete, archive, or mark Gmail messages as read.</div>
           </section>
 
           <section className="controlPanel" id="help-center">
-            <div className="controlCopy">
-              <span className="eyebrow">HELP CENTER</span>
-              <h2>Using Inbox Outlaw</h2>
-              <p>Sync Gmail, open a classified message, review the warning signals, then mark the email or sender as safe, blocked, scam, or opportunity.</p>
-            </div>
+            <div className="controlCopy"><span className="eyebrow">HELP CENTER</span><h2>Using Inbox Outlaw</h2><p>Sync Gmail, open a classified message, review the warning signals, then mark the email or sender as safe, blocked, scam, or opportunity.</p></div>
             <div className="controlActions">
               <button type="button" className="button secondary" onClick={() => scrollToTarget('inbox')}>Open smart inbox</button>
               <button type="button" className="button secondary" onClick={() => scrollToTarget('settings-panel')}>Open settings</button>
