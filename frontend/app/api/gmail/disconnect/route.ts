@@ -5,16 +5,30 @@ import { clearStoredTokens } from '../../../../lib/gmail-local';
 
 export const runtime = 'nodejs';
 
-export async function POST() {
-  let user;
+async function disconnect() {
+  const user = await requireSessionUser();
+  await clearStoredTokens();
   try {
-    user = await requireSessionUser();
+    await addActivityLog(user.email, 'gmail_disconnected', 'Disconnected Gmail connection for this user session.');
+  } catch {
+    // Disconnect should not fail just because activity logging is unavailable.
+  }
+}
+
+export async function POST() {
+  try {
+    await disconnect();
+    return NextResponse.json({ note: 'Gmail disconnected successfully.' });
   } catch {
     return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
   }
+}
 
-  await clearStoredTokens();
-  await addActivityLog(user.email, 'gmail_disconnected', 'Disconnected Gmail connection for this user session.');
-
-  return NextResponse.json({ note: 'Gmail disconnected successfully.' });
+export async function GET(request: Request) {
+  try {
+    await disconnect();
+    return NextResponse.redirect(new URL('/settings?gmail=disconnected', request.url));
+  } catch {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
 }
