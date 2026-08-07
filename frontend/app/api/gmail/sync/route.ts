@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const gmailPayload = await fetchLatestGmailMessages(limit);
     const savedRecords = await upsertSyncedEmailRecords(user.email, gmailPayload.messages);
     const [records, summary] = await Promise.all([
-      listEmailRecords(user.email),
+      listEmailRecords(user.email, 100),
       getInboxSummary(user.email),
     ]);
 
