@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type {
   ClassificationResult,
   EmailInput,
@@ -9,10 +8,108 @@ import type {
 } from './types';
 
 const DEFAULT_OWNER_EMAIL = 'anonymous@local.demo';
-const emailRecordStore = new Map<string, StoredEmailRecord[]>();
+
+type DatabaseEmailRecord = {
+  id: string;
+  user_email: string;
+  gmail_message_id: string | null;
+  thread_id: string | null;
+  source: string;
+  sender_name: string | null;
+  sender_email: string;
+  subject: string;
+  body_text: string;
+  category: string;
+  risk_score: number;
+  confidence_score: number;
+  recommended_action: string | null;
+  review_state: ReviewState;
+  reviewed_at: string | null;
+  received_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type SenderRuleRow = {
+  sender_email: string;
+  decision: 'safe' | 'blocked';
+};
+
+function getSupabaseCredentials() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_JWT_SECRET;
+
+  if (!url || !key) {
+    throw new Error('Supabase server credentials are not configured.');
+  }
+
+  return { url: url.replace(/\/$/, ''), key };
+}
+
+async function supabaseRequest<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const { url, key } = getSupabaseCredentials();
+  const response = await fetch(`${url}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      ...init.headers,
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Supabase request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
+
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+function mapDatabaseRecord(row: DatabaseEmailRecord): StoredEmailRecord {
+  return {
+    id: row.id,
+    gmailMessageId: row.gmail_message_id,
+    threadId: row.thread_id,
+    source: row.source,
+    senderName: row.sender_name,
+    senderEmail: row.sender_email,
+    subject: row.subject,
+    bodyText: row.body_text,
+    category: row.category,
+    riskScore: row.risk_score,
+    confidenceScore: row.confidence_score,
+    recommendedAction: row.recommended_action,
+    reviewState: row.review_state,
+    reviewedAt: row.reviewed_at,
+    receivedAt: row.received_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function encodeFilter(value: string) {
+  return encodeURIComponent(value);
+}
+
+async function ensureUser(ownerEmail: string) {
+  await supabaseRequest<unknown>('app_users?on_conflict=email', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ email: ownerEmail }),
+  });
+}
 
 export async function ensureEmailRecordStore() {
-  return;
+  getSupabaseCredentials();
 }
 
 export async function createEmailRecord(
@@ -20,95 +117,81 @@ export async function createEmailRecord(
   email: EmailInput,
   result: ClassificationResult,
 ) {
-  const now = new Date().toISOString();
-  const record: StoredEmailRecord = {
-    id: randomUUID(),
-    gmailMessageId: null,
-    threadId: null,
-    source: 'manual',
-    senderName: email.sender_name ?? null,
-    senderEmail: email.sender_email,
-    subject: email.subject,
-    bodyText: email.body_text,
-    category: result.category,
-    riskScore: result.risk_score,
-    confidenceScore: result.confidence_score,
-    recommendedAction: result.recommended_action,
-    reviewState: null,
-    reviewedAt: null,
-    receivedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  };
+  await ensureUser(ownerEmail);
+  const rows = await supabaseRequest<DatabaseEmailRecord[]>('email_records?select=*', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      user_email: ownerEmail,
+      gmail_message_id: null,
+      thread_id: null,
+      source: 'manual',
+      sender_name: email.sender_name ?? null,
+      sender_email: email.sender_email,
+      subject: email.subject,
+      body_text: email.body_text,
+      category: result.category,
+      risk_score: result.risk_score,
+      confidence_score: result.confidence_score,
+      recommended_action: result.recommended_action,
+      review_state: null,
+      reviewed_at: null,
+      received_at: null,
+    }),
+  });
 
-  const existing = emailRecordStore.get(ownerEmail) || [];
-  emailRecordStore.set(ownerEmail, [record, ...existing].slice(0, 100));
-  return record;
-}
-
-function mapSyncedMessageToStoredRecord(message: GmailSyncMessage) {
-  const now = new Date().toISOString();
-  const receivedAt = message.received_at ?? null;
-  return {
-    id: randomUUID(),
-    gmailMessageId: message.gmail_message_id,
-    threadId: message.thread_id ?? null,
-    source: message.source || 'gmail',
-    senderName: message.email.sender_name ?? null,
-    senderEmail: message.email.sender_email,
-    subject: message.email.subject,
-    bodyText: message.email.body_text,
-    category: message.classification.category,
-    riskScore: message.classification.risk_score,
-    confidenceScore: message.classification.confidence_score,
-    recommendedAction: message.classification.recommended_action,
-    reviewState: null,
-    reviewedAt: null,
-    receivedAt,
-    createdAt: receivedAt ?? now,
-    updatedAt: now,
-  } satisfies StoredEmailRecord;
+  return mapDatabaseRecord(rows[0]);
 }
 
 export async function upsertSyncedEmailRecords(
   ownerEmail: string = DEFAULT_OWNER_EMAIL,
   messages: GmailSyncMessage[],
 ) {
-  const existing = emailRecordStore.get(ownerEmail) || [];
-  const byGmailId = new Map(existing.map((record) => [record.gmailMessageId || record.id, record]));
-  const savedRecords: StoredEmailRecord[] = [];
+  if (!messages.length) return [];
+  await ensureUser(ownerEmail);
 
-  for (const message of messages) {
-    const incoming = mapSyncedMessageToStoredRecord(message);
-    const key = incoming.gmailMessageId || incoming.id;
-    const current = byGmailId.get(key);
-    const senderDecision = existing.find(
-      (record) => record.senderEmail.toLowerCase() === incoming.senderEmail.toLowerCase() && (record.reviewState === 'safe' || record.reviewState === 'scam'),
-    )?.reviewState ?? null;
-    const record = current
-      ? {
-          ...current,
-          ...incoming,
-          id: current.id,
-          createdAt: current.createdAt,
-          reviewState: current.reviewState ?? senderDecision,
-          reviewedAt: current.reviewedAt ?? (senderDecision ? new Date().toISOString() : null),
-          updatedAt: new Date().toISOString(),
-        }
-      : {
-          ...incoming,
-          reviewState: senderDecision,
-          reviewedAt: senderDecision ? new Date().toISOString() : null,
-        };
-    byGmailId.set(key, record);
-    savedRecords.push(record);
-  }
+  const senderRules = await supabaseRequest<SenderRuleRow[]>(
+    `sender_rules?user_email=eq.${encodeFilter(ownerEmail)}&select=sender_email,decision`,
+  );
+  const ruleBySender = new Map(
+    senderRules.map((rule) => [
+      rule.sender_email.trim().toLowerCase(),
+      rule.decision === 'blocked' ? ('scam' as const) : ('safe' as const),
+    ]),
+  );
 
-  const merged = Array.from(byGmailId.values())
-    .sort((a, b) => new Date(b.receivedAt || b.createdAt).getTime() - new Date(a.receivedAt || a.createdAt).getTime())
-    .slice(0, 100);
-  emailRecordStore.set(ownerEmail, merged);
-  return savedRecords;
+  const rows = messages.map((message) => {
+    const senderEmail = message.email.sender_email;
+    const senderDecision = ruleBySender.get(senderEmail.trim().toLowerCase()) ?? null;
+    return {
+      user_email: ownerEmail,
+      gmail_message_id: message.gmail_message_id,
+      thread_id: message.thread_id ?? null,
+      source: message.source || 'gmail',
+      sender_name: message.email.sender_name ?? null,
+      sender_email: senderEmail,
+      subject: message.email.subject,
+      body_text: message.email.body_text,
+      category: message.classification.category,
+      risk_score: message.classification.risk_score,
+      confidence_score: message.classification.confidence_score,
+      recommended_action: message.classification.recommended_action,
+      review_state: senderDecision,
+      reviewed_at: senderDecision ? new Date().toISOString() : null,
+      received_at: message.received_at ?? null,
+    };
+  });
+
+  const saved = await supabaseRequest<DatabaseEmailRecord[]>(
+    'email_records?on_conflict=user_email,gmail_message_id&select=*',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(rows),
+    },
+  );
+
+  return saved.map(mapDatabaseRecord);
 }
 
 export async function updateEmailReview(
@@ -116,21 +199,19 @@ export async function updateEmailReview(
   recordId: string,
   reviewState: ReviewState,
 ) {
-  const records = emailRecordStore.get(ownerEmail) || [];
-  const index = records.findIndex((record) => record.id === recordId);
-  if (index < 0) return null;
+  const rows = await supabaseRequest<DatabaseEmailRecord[]>(
+    `email_records?user_email=eq.${encodeFilter(ownerEmail)}&id=eq.${encodeFilter(recordId)}&select=*`,
+    {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        review_state: reviewState,
+        reviewed_at: reviewState ? new Date().toISOString() : null,
+      }),
+    },
+  );
 
-  const now = new Date().toISOString();
-  const updated: StoredEmailRecord = {
-    ...records[index],
-    reviewState,
-    reviewedAt: reviewState ? now : null,
-    updatedAt: now,
-  };
-  const next = [...records];
-  next[index] = updated;
-  emailRecordStore.set(ownerEmail, next);
-  return updated;
+  return rows[0] ? mapDatabaseRecord(rows[0]) : null;
 }
 
 export async function updateSenderReview(
@@ -138,44 +219,65 @@ export async function updateSenderReview(
   senderEmail: string,
   reviewState: Extract<ReviewState, 'safe' | 'scam'> | null,
 ) {
-  const records = emailRecordStore.get(ownerEmail) || [];
+  await ensureUser(ownerEmail);
   const normalized = senderEmail.trim().toLowerCase();
-  const now = new Date().toISOString();
-  let changed = 0;
 
-  const next = records.map((record) => {
-    if (record.senderEmail.trim().toLowerCase() !== normalized) return record;
-    changed += 1;
-    return {
-      ...record,
-      reviewState,
-      reviewedAt: reviewState ? now : null,
-      updatedAt: now,
-    } satisfies StoredEmailRecord;
-  });
+  if (reviewState) {
+    await supabaseRequest<unknown>('sender_rules?on_conflict=user_email,sender_email', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({
+        user_email: ownerEmail,
+        sender_email: normalized,
+        decision: reviewState === 'scam' ? 'blocked' : 'safe',
+      }),
+    });
+  } else {
+    await supabaseRequest<unknown>(
+      `sender_rules?user_email=eq.${encodeFilter(ownerEmail)}&sender_email=eq.${encodeFilter(normalized)}`,
+      { method: 'DELETE', headers: { Prefer: 'return=minimal' } },
+    );
+  }
 
-  if (!changed) return [];
-  emailRecordStore.set(ownerEmail, next);
-  return next.filter((record) => record.senderEmail.trim().toLowerCase() === normalized);
+  const rows = await supabaseRequest<DatabaseEmailRecord[]>(
+    `email_records?user_email=eq.${encodeFilter(ownerEmail)}&sender_email=ilike.${encodeFilter(normalized)}&select=*`,
+    {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        review_state: reviewState,
+        reviewed_at: reviewState ? new Date().toISOString() : null,
+      }),
+    },
+  );
+
+  return rows.map(mapDatabaseRecord);
 }
 
 export async function listEmailRecords(ownerEmail: string = DEFAULT_OWNER_EMAIL, limit = 12) {
-  return (emailRecordStore.get(ownerEmail) || [])
-    .sort((a, b) => new Date(b.receivedAt || b.createdAt).getTime() - new Date(a.receivedAt || a.createdAt).getTime())
-    .slice(0, limit);
-}
-
-function countByCategory(records: StoredEmailRecord[], categories: string[]) {
-  if (categories.length === 0) return records.length;
-  return records.filter((record) => categories.includes(record.category)).length;
+  const rows = await supabaseRequest<DatabaseEmailRecord[]>(
+    `email_records?user_email=eq.${encodeFilter(ownerEmail)}&select=*&order=received_at.desc.nullslast,created_at.desc&limit=${limit}`,
+  );
+  return rows.map(mapDatabaseRecord);
 }
 
 export async function getInboxSummary(ownerEmail: string = DEFAULT_OWNER_EMAIL): Promise<InboxSummary> {
-  const records = emailRecordStore.get(ownerEmail) || [];
-  const total = countByCategory(records, []);
-  const scams = records.filter((record) => record.reviewState === 'scam' || ['Scam', 'Likely Scam'].includes(record.category)).length;
-  const opportunities = records.filter((record) => record.reviewState === 'opportunity' || record.category === 'Opportunity').length;
-  const handled = records.filter((record) => Boolean(record.reviewState) || ['Scam', 'Likely Scam', 'Promotion', 'Transactional', 'Verified Business'].includes(record.category)).length;
+  const rows = await supabaseRequest<Pick<DatabaseEmailRecord, 'category' | 'review_state'>[]>(
+    `email_records?user_email=eq.${encodeFilter(ownerEmail)}&select=category,review_state`,
+  );
+
+  const total = rows.length;
+  const scams = rows.filter(
+    (record) => record.review_state === 'scam' || ['Scam', 'Likely Scam'].includes(record.category),
+  ).length;
+  const opportunities = rows.filter(
+    (record) => record.review_state === 'opportunity' || record.category === 'Opportunity',
+  ).length;
+  const handled = rows.filter(
+    (record) =>
+      Boolean(record.review_state) ||
+      ['Scam', 'Likely Scam', 'Promotion', 'Transactional', 'Verified Business'].includes(record.category),
+  ).length;
 
   return { total, scams, opportunities, handled };
 }
