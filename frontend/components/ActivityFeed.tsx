@@ -6,6 +6,8 @@ const tone: Record<ActivityLogEntry['type'], string> = {
   gmail_connected: '#9bd6ff',
   gmail_disconnected: '#ffb86b',
   gmail_synced: '#8df7c8',
+  email_reviewed: '#ff9bd6',
+  sender_rule_updated: '#ffb86b',
   logout: '#f4d35e',
 };
 
