@@ -8,6 +8,8 @@ const categoryTone: Record<string, string> = {
   Transactional: '#7c8cff', 'Verified Business': '#36d399', Personal: '#f4d35e', 'Needs Review': '#c5cad6',
 };
 
+const specialFilters = ['Scam Alerts', 'Opportunities', 'Safe Senders', 'Blocked Senders'] as const;
+
 function initials(name: string | null | undefined, email: string) {
   const source = name?.trim() || email;
   return source.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('');
@@ -28,9 +30,18 @@ function signalList(record: StoredEmailRecord) {
   return signals.slice(0, 5);
 }
 
+function matchesView(record: StoredEmailRecord, view: string, review: ReviewState) {
+  if (view === 'All') return true;
+  if (view === 'Scam Alerts') return review === 'scam' || record.category === 'Scam' || record.category === 'Likely Scam';
+  if (view === 'Opportunities') return review === 'opportunity' || record.category === 'Opportunity';
+  if (view === 'Safe Senders') return review === 'safe';
+  if (view === 'Blocked Senders') return review === 'scam';
+  return record.category === view;
+}
+
 export default function RecordsTable({ records }: { records: StoredEmailRecord[] }) {
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('All');
+  const [view, setView] = useState('All');
   const [selected, setSelected] = useState<StoredEmailRecord | null>(null);
   const [reviewState, setReviewState] = useState<Record<string, ReviewState>>({});
   const [notice, setNotice] = useState('');
@@ -43,18 +54,10 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
   useEffect(() => {
     const onFilter = (event: Event) => {
       const requested = (event as CustomEvent<string>).detail || 'All';
-      if (requested === 'Safe') {
-        setCategory('All');
-        setQuery('');
-        return;
-      }
-      if (requested === 'Blocked') {
-        setCategory('All');
-        setQuery('');
-        return;
-      }
-      const available = new Set(records.map((record) => record.category));
-      setCategory(requested === 'All' || available.has(requested) ? requested : 'All');
+      const categories = new Set(records.map((record) => record.category));
+      const validSpecial = (specialFilters as readonly string[]).includes(requested);
+      setView(requested === 'All' || validSpecial || categories.has(requested) ? requested : 'All');
+      setQuery('');
     };
     const onSearch = (event: Event) => setQuery((event as CustomEvent<string>).detail || '');
     window.addEventListener('inbox-filter', onFilter);
@@ -67,10 +70,21 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
 
   const categories = useMemo(() => ['All', ...Array.from(new Set(records.map((record) => record.category)))], [records]);
   const filtered = useMemo(() => records.filter((record) => {
-    const matchesCategory = category === 'All' || record.category === category;
+    const reviewed = reviewState[record.id] ?? record.reviewState ?? null;
     const haystack = `${record.senderName || ''} ${record.senderEmail} ${record.subject} ${record.bodyText}`.toLowerCase();
-    return matchesCategory && haystack.includes(query.toLowerCase());
-  }), [records, query, category]);
+    return matchesView(record, view, reviewed) && haystack.includes(query.toLowerCase());
+  }), [records, query, reviewState, view]);
+
+  const title = view === 'All' ? 'Recent classified emails' : view;
+  const emptyCopy = view === 'Safe Senders'
+    ? 'No senders have been marked safe yet.'
+    : view === 'Blocked Senders'
+      ? 'No senders have been blocked yet.'
+      : view === 'Scam Alerts'
+        ? 'No scam alerts match this view.'
+        : view === 'Opportunities'
+          ? 'No saved or detected opportunities match this view.'
+          : 'Change the search term or category filter.';
 
   async function saveReview(record: StoredEmailRecord, state: ReviewState, applyToSender = false) {
     try {
@@ -113,14 +127,14 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
   return (
     <section className="inboxPanel" id="inbox">
       <div className="inboxToolbar">
-        <div><span className="eyebrow">SMART INBOX</span><h2>Recent classified emails</h2><p className="subtle">Select a message to see its risk explanation and recommended action.</p></div>
+        <div><span className="eyebrow">SMART INBOX</span><h2>{title}</h2><p className="subtle">Select a message to see its risk explanation and recommended action.</p></div>
         <label className="tableSearch"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search sender or subject" /></label>
       </div>
-      <div className="filterRow" aria-label="Email category filters">{categories.map((item) => <button type="button" key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div>
-      {records.length === 0 ? <div className="emptyState"><strong>No saved emails yet</strong><p>Sync Gmail and your classified messages will appear here.</p></div> : filtered.length === 0 ? <div className="emptyState"><strong>No matching emails</strong><p>Change the search term or category filter.</p></div> : (
+      <div className="filterRow" aria-label="Email category filters">{categories.map((item) => <button type="button" key={item} className={view === item ? 'active' : ''} onClick={() => setView(item)}>{item}</button>)}</div>
+      {records.length === 0 ? <div className="emptyState"><strong>No saved emails yet</strong><p>Sync Gmail and your classified messages will appear here.</p></div> : filtered.length === 0 ? <div className="emptyState"><strong>No matching emails</strong><p>{emptyCopy}</p></div> : (
         <div className="recordsTableWrap"><table className="recordsTable modernTable"><thead><tr><th>Sender</th><th>Subject</th><th>Category</th><th>Risk</th><th>Confidence</th><th>Received</th></tr></thead><tbody>
-          {filtered.map((record) => { const tone = categoryTone[record.category] || '#fff'; const reviewed = reviewState[record.id]; return (
-            <tr key={record.id} onClick={() => { setSelected({ ...record, reviewState: reviewed ?? null }); setNotice(''); }} tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && setSelected(record)}>
+          {filtered.map((record) => { const tone = categoryTone[record.category] || '#fff'; const reviewed = reviewState[record.id] ?? record.reviewState; return (
+            <tr key={record.id} onClick={() => { setSelected({ ...record, reviewState: reviewed ?? null }); setNotice(''); }} tabIndex={0} onKeyDown={(event) => event.key === 'Enter' && setSelected({ ...record, reviewState: reviewed ?? null })}>
               <td><div className="senderCell"><span className="senderAvatar" style={{ borderColor: tone }}>{initials(record.senderName, record.senderEmail)}</span><div><strong>{record.senderName || 'Unknown sender'}</strong><small>{record.senderEmail}</small></div></div></td>
               <td><strong>{record.subject}</strong><small className="clamp2">{record.bodyText}</small>{reviewed ? <small className={`reviewTag ${reviewed}`}>{reviewed === 'safe' ? '✓ Safe sender' : reviewed === 'scam' ? '⊘ Blocked sender' : '★ Saved opportunity'}</small> : null}</td>
               <td><span className="categoryBadge" style={{ color: tone, borderColor: `${tone}66`, background: `${tone}14` }}>{record.category}</span></td>
@@ -134,7 +148,7 @@ export default function RecordsTable({ records }: { records: StoredEmailRecord[]
         <button className="drawerClose" onClick={() => setSelected(null)} aria-label="Close email details">×</button><span className="eyebrow">AI EMAIL ANALYSIS</span><h2>{selected.subject}</h2><p className="drawerSender">From <strong>{selected.senderName || selected.senderEmail}</strong><br />{selected.senderEmail}</p>
         <div className="drawerScoreGrid"><div><small>Risk score</small><strong>{selected.riskScore}/100</strong></div><div><small>Confidence</small><strong>{selected.confidenceScore}%</strong></div></div>
         <div className="analysisBlock"><h3>Classification</h3><span className="categoryBadge" style={{ color: categoryTone[selected.category] || '#fff' }}>{selected.category}</span></div>
-        <div className="analysisBlock"><h3>Why Inbox Outlaw flagged it</h3><ul className="signalList">{signalList(selected).map((signal) => <li key={signal}>{signal}</li>)}</ul></div>
+        <div className="analysisBlock"><h3>Why Inbox Outlaw classified it</h3><ul className="signalList">{signalList(selected).map((signal) => <li key={signal}>{signal}</li>)}</ul></div>
         <div className="analysisBlock"><h3>Recommended action</h3><p>{selected.recommendedAction || 'Review carefully before taking action.'}</p></div>
         <div className="analysisBlock"><h3>Email preview</h3><p>{selected.bodyText || 'No body preview available.'}</p></div>
         {notice ? <div className="actionNotice">{notice}</div> : null}
