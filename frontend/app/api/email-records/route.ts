@@ -24,11 +24,16 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
   }
+
   const [records, summary] = await Promise.all([
-    listEmailRecords(user.email),
+    listEmailRecords(user.email, 100),
     getInboxSummary(user.email),
   ]);
-  return NextResponse.json({ records, summary, sessionUser: user });
+
+  return NextResponse.json(
+    { records, summary, sessionUser: user },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }
 
 export async function POST(request: Request) {
