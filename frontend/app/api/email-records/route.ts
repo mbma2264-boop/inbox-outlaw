@@ -17,6 +17,13 @@ function validateEmailPayload(payload: Partial<EmailInput>): payload is EmailInp
   );
 }
 
+function stateLabel(state: ReviewState) {
+  if (state === 'safe') return 'safe';
+  if (state === 'scam') return 'scam';
+  if (state === 'opportunity') return 'opportunity';
+  return 'cleared';
+}
+
 export async function GET() {
   let user;
   try {
@@ -103,6 +110,18 @@ export async function PATCH(request: Request) {
     const records = await updateSenderReview(user.email, payload.senderEmail, state);
     if (!records.length) return NextResponse.json({ error: 'No records found for that sender.' }, { status: 404 });
     const summary = await getInboxSummary(user.email);
+    await addActivityLog(
+      user.email,
+      'sender_rule_updated',
+      state === null
+        ? `Removed the saved sender decision for ${payload.senderEmail}.`
+        : `Marked ${payload.senderEmail} as ${state === 'safe' ? 'a safe sender' : 'a blocked sender'}.`,
+      {
+        senderEmail: payload.senderEmail,
+        reviewState: state,
+        affectedRecords: records.length,
+      },
+    );
     return NextResponse.json({ records, record: records[0], summary });
   }
 
@@ -116,5 +135,18 @@ export async function PATCH(request: Request) {
   }
 
   const summary = await getInboxSummary(user.email);
+  await addActivityLog(
+    user.email,
+    'email_reviewed',
+    state === null
+      ? `Cleared the saved decision for “${record.subject}”.`
+      : `Marked “${record.subject}” as ${stateLabel(state)}.`,
+    {
+      recordId: record.id,
+      senderEmail: record.senderEmail,
+      reviewState: state,
+      category: record.category,
+    },
+  );
   return NextResponse.json({ record, summary });
 }
