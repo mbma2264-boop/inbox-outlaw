@@ -14,17 +14,14 @@ const navigation: NavItem[] = [
   { label: "Safe Senders", icon: "✓", target: "inbox", filter: "Safe Senders" },
   { label: "Blocked Senders", icon: "⊘", target: "inbox", filter: "Blocked Senders" },
   { label: "Reports", icon: "▥", target: "reports", href: "/reports" },
-  { label: "Rules & Filters", icon: "▽", target: "classifier" },
-  { label: "AI Training", icon: "✦", target: "classifier" },
-  { label: "Settings", icon: "⚙", target: "settings-panel" },
+  { label: "Rules & Filters", icon: "▽", target: "classifier", href: "/rules" },
+  { label: "AI Training", icon: "✦", target: "classifier", href: "/training" },
+  { label: "Settings", icon: "⚙", target: "settings-panel", href: "/settings" },
   { label: "Help Center", icon: "?", target: "help-center" },
 ];
 
 function scrollToTarget(target: string) {
-  if (target === "top") {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    return;
-  }
+  if (target === "top") { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
   document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -43,61 +40,10 @@ export default function DashboardShell({ email, children }: { email: string; chi
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [dailyAlerts, setDailyAlerts] = useState(true);
-  const [autoSync, setAutoSync] = useState(false);
-  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
-  const [lastAutoSync, setLastAutoSync] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState('');
   const [counts, setCounts] = useState<LiveCounts>({ total: 0, scams: 0, opportunities: 0, safe: 0, blocked: 0 });
-
-  async function requestGmailSync(reloadAfter = true) {
-    try {
-      setSyncStatus('Syncing Gmail…');
-      const response = await fetch('/api/gmail/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ limit: 10 }),
-      });
-      const payload = await response.json().catch(() => null) as { error?: string; importedCount?: number; persistedCount?: number } | null;
-      if (!response.ok) throw new Error(payload?.error || `Gmail sync returned ${response.status}.`);
-
-      const timestamp = new Date().toISOString();
-      window.localStorage.setItem('inbox-outlaw-last-auto-sync', timestamp);
-      setLastAutoSync(timestamp);
-      setSyncStatus(`Synced ${payload?.importedCount ?? 0} messages.`);
-      window.dispatchEvent(new CustomEvent('inbox-records-updated'));
-      if (reloadAfter) window.setTimeout(() => window.location.reload(), 500);
-    } catch (error) {
-      setSyncStatus(error instanceof Error ? error.message : 'Unable to sync Gmail.');
-    }
-  }
-
-  useEffect(() => {
-    try {
-      setDailyAlerts(window.localStorage.getItem('inbox-outlaw-daily-alerts') !== 'false');
-      setAutoSync(window.localStorage.getItem('inbox-outlaw-auto-sync') === 'true');
-      setLastAutoSync(window.localStorage.getItem('inbox-outlaw-last-auto-sync'));
-    } finally {
-      setPreferencesLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!preferencesLoaded) return;
-    window.localStorage.setItem('inbox-outlaw-daily-alerts', String(dailyAlerts));
-    window.localStorage.setItem('inbox-outlaw-auto-sync', String(autoSync));
-  }, [dailyAlerts, autoSync, preferencesLoaded]);
-
-  useEffect(() => {
-    if (!preferencesLoaded || !autoSync) return;
-    const timer = window.setInterval(() => void requestGmailSync(true), 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [autoSync, preferencesLoaded]);
 
   useEffect(() => {
     let cancelled = false;
-
     async function loadCounts() {
       try {
         const response = await fetch('/api/email-records', { cache: 'no-store' });
@@ -111,29 +57,18 @@ export default function DashboardShell({ email, children }: { email: string; chi
           safe: records.filter((record) => record.reviewState === 'safe').length,
           blocked: records.filter((record) => record.reviewState === 'scam').length,
         });
-      } catch {
-        // Keep the last confirmed counts when the dashboard API is temporarily unavailable.
-      }
+      } catch {}
     }
-
     void loadCounts();
     const timer = window.setInterval(loadCounts, 15000);
     window.addEventListener('focus', loadCounts);
     window.addEventListener('inbox-records-updated', loadCounts);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', loadCounts);
-      window.removeEventListener('inbox-records-updated', loadCounts);
-    };
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', loadCounts); window.removeEventListener('inbox-records-updated', loadCounts); };
   }, []);
 
   function activate(item: NavItem) {
     setActive(item.label);
-    if (item.href) {
-      window.location.assign(item.href);
-      return;
-    }
+    if (item.href) { window.location.assign(item.href); return; }
     if (item.filter) window.dispatchEvent(new CustomEvent("inbox-filter", { detail: item.filter }));
     scrollToTarget(item.target);
   }
@@ -150,27 +85,11 @@ export default function DashboardShell({ email, children }: { email: string; chi
   return (
     <main className="saasApp" id="top">
       <aside className="saasSidebar">
-        <Link href="/dashboard" className="brandLockup">
-          <span className="brandShield">🛡</span>
-          <span><strong>INBOX <em>OUTLAW</em></strong><small>PROTECT YOUR INBOX. PROTECT YOUR PEACE.</small></span>
-        </Link>
-
+        <Link href="/dashboard" className="brandLockup"><span className="brandShield">🛡</span><span><strong>INBOX <em>OUTLAW</em></strong><small>PROTECT YOUR INBOX. PROTECT YOUR PEACE.</small></span></Link>
         <nav className="sideNav" aria-label="Dashboard navigation">
-          {navigation.map((item) => {
-            const badge = badgeFor(item.label, counts);
-            return (
-              <button key={item.label} type="button" onClick={() => activate(item)} className={active === item.label ? "active" : ""}>
-                <span className="navIcon">{item.icon}</span><span>{item.label}</span>{badge !== null ? <b>{badge}</b> : null}
-              </button>
-            );
-          })}
+          {navigation.map((item) => { const badge = badgeFor(item.label, counts); return <button key={item.label} type="button" onClick={() => activate(item)} className={active === item.label ? "active" : ""}><span className="navIcon">{item.icon}</span><span>{item.label}</span>{badge !== null ? <b>{badge}</b> : null}</button>; })}
         </nav>
-
-        <div className="proStatus">
-          <span className="brandShield mini">IO</span>
-          <div><strong>Inbox Outlaw App</strong><small>Your inbox. Your rules.</small></div>
-          <b>Active</b>
-        </div>
+        <div className="proStatus"><span className="brandShield mini">IO</span><div><strong>Inbox Outlaw App</strong><small>Your inbox. Your rules.</small></div><b>Active</b></div>
       </aside>
 
       <section className="saasMain">
@@ -178,53 +97,16 @@ export default function DashboardShell({ email, children }: { email: string; chi
           <label className="globalSearch"><span>⌕</span><input value={search} onChange={(event) => submitSearch(event.target.value)} placeholder="Search emails, senders, keywords..." /></label>
           <div className="topActions">
             <div className="productStatus"><span className="statusDot" />Protection active</div>
-            <div className="menuWrap">
-              <button type="button" className="iconButton" aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)}>◌<i>{counts.scams}</i></button>
-              {notificationsOpen ? <div className="headerMenu"><strong>Notifications</strong><p>{counts.scams ? `${counts.scams} scam alert${counts.scams === 1 ? '' : 's'} need review.` : 'No scam alerts need review.'}</p><p>{counts.total} email records are currently protected.</p></div> : null}
-            </div>
-            <div className="menuWrap">
-              <button type="button" className="accountChip" onClick={() => setAccountOpen((open) => !open)}><span>{email.slice(0, 2).toUpperCase()}</span><div><strong>{email}</strong><small>Inbox Outlaw Account</small></div><i>⌄</i></button>
-              {accountOpen ? <div className="headerMenu accountMenu"><strong>Account</strong><p>{email}</p><a href="/api/auth/logout">Log out</a></div> : null}
-            </div>
+            <div className="menuWrap"><button type="button" className="iconButton" aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)}>◌<i>{counts.scams}</i></button>{notificationsOpen ? <div className="headerMenu"><strong>Notifications</strong><p>{counts.scams ? `${counts.scams} scam alert${counts.scams === 1 ? '' : 's'} need review.` : 'No scam alerts need review.'}</p><p>{counts.total} email records are currently protected.</p></div> : null}</div>
+            <div className="menuWrap"><button type="button" className="accountChip" onClick={() => setAccountOpen((open) => !open)}><span>{email.slice(0, 2).toUpperCase()}</span><div><strong>{email}</strong><small>Inbox Outlaw Account</small></div><i>⌄</i></button>{accountOpen ? <div className="headerMenu accountMenu"><strong>Account</strong><p>{email}</p><a href="/settings">Settings</a><a href="/api/auth/logout">Log out</a></div> : null}</div>
           </div>
         </header>
 
         <div className="saasContent">
           {children}
-
-          <section className="controlPanel" id="reports">
-            <div className="controlCopy"><span className="eyebrow">REPORTS</span><h2>Inbox protection report</h2><p>Live totals from the email records currently saved to this Inbox Outlaw account.</p></div>
-            <div className="referenceMetricGrid">
-              <article className="referenceMetric pinkMetric"><div><span>Threat alerts</span><strong>{counts.scams}</strong><small>Scam-classified or reported records</small></div></article>
-              <article className="referenceMetric greenMetric"><div><span>Safe senders</span><strong>{counts.safe}</strong><small>Messages or senders reviewed safe</small></div></article>
-              <article className="referenceMetric blueMetric"><div><span>Reviewed</span><strong>{reviewRate}%</strong><small>{reviewed} of {counts.total} records reviewed</small></div></article>
-              <article className="referenceMetric roseMetric"><div><span>Opportunities</span><strong>{counts.opportunities}</strong><small>Potential business opportunities found</small></div></article>
-            </div>
-            <div className="controlActions" style={{ marginTop: 18 }}>
-              <a className="button secondary" href="/reports">Open full reports</a>
-            </div>
-          </section>
-
-          <section className="controlPanel" id="settings-panel">
-            <div className="controlCopy"><span className="eyebrow">SETTINGS</span><h2>Protection preferences</h2><p>Preferences are saved in this browser. Gmail access remains read-only.</p></div>
-            <div className="controlActions">
-              <button type="button" className={`button secondary ${dailyAlerts ? '' : 'quiet'}`} onClick={() => setDailyAlerts((enabled) => !enabled)}>{dailyAlerts ? 'Daily alerts enabled' : 'Daily alerts disabled'}</button>
-              <button type="button" className={`button secondary ${autoSync ? '' : 'quiet'}`} onClick={() => setAutoSync((enabled) => !enabled)}>{autoSync ? 'Auto-sync every 5 minutes' : 'Auto-sync is off'}</button>
-              <button type="button" className="button secondary" onClick={() => void requestGmailSync(true)}>Sync Gmail now</button>
-              <a className="button secondary" href="/api/auth/logout">Log out securely</a>
-            </div>
-            <div className="controlStatus">{syncStatus ? `${syncStatus} ` : ''}Connected account: {email}. {lastAutoSync ? `Last sync: ${new Date(lastAutoSync).toLocaleString()}. ` : ''}Inbox Outlaw does not send, delete, archive, or mark Gmail messages as read.</div>
-          </section>
-
-          <section className="controlPanel" id="help-center">
-            <div className="controlCopy"><span className="eyebrow">HELP CENTER</span><h2>Using Inbox Outlaw</h2><p>Sync Gmail, open a classified message, review the warning signals, then mark the email or sender as safe, blocked, scam, or opportunity.</p></div>
-            <div className="controlActions">
-              <button type="button" className="button secondary" onClick={() => scrollToTarget('inbox')}>Open smart inbox</button>
-              <button type="button" className="button secondary" onClick={() => scrollToTarget('settings-panel')}>Open settings</button>
-              <a className="button secondary" href="mailto:support@inboxoutlaw.app">Contact support</a>
-            </div>
-            <div className="controlStatus">For suspicious messages, do not click links, send money, share passwords, or provide verification codes until the sender is independently verified.</div>
-          </section>
+          <section className="controlPanel" id="reports"><div className="controlCopy"><span className="eyebrow">REPORTS</span><h2>Inbox protection report</h2><p>Live totals from the email records currently saved to this Inbox Outlaw account.</p></div><div className="referenceMetricGrid"><article className="referenceMetric pinkMetric"><div><span>Threat alerts</span><strong>{counts.scams}</strong><small>Scam-classified or reported records</small></div></article><article className="referenceMetric greenMetric"><div><span>Safe senders</span><strong>{counts.safe}</strong><small>Messages or senders reviewed safe</small></div></article><article className="referenceMetric blueMetric"><div><span>Reviewed</span><strong>{reviewRate}%</strong><small>{reviewed} of {counts.total} records reviewed</small></div></article><article className="referenceMetric roseMetric"><div><span>Opportunities</span><strong>{counts.opportunities}</strong><small>Potential business opportunities found</small></div></article></div><div className="controlActions" style={{ marginTop: 18 }}><a className="button secondary" href="/reports">Open full reports</a></div></section>
+          <section className="controlPanel" id="settings-panel"><div className="controlCopy"><span className="eyebrow">SETTINGS</span><h2>Account & protection settings</h2><p>Manage Gmail connection, synchronization, preferences, exports, and account security.</p></div><div className="controlActions"><a className="button secondary" href="/settings">Open full settings</a></div></section>
+          <section className="controlPanel" id="help-center"><div className="controlCopy"><span className="eyebrow">HELP CENTER</span><h2>Using Inbox Outlaw</h2><p>Sync Gmail, open a classified message, review the warning signals, then mark the email or sender as safe, blocked, scam, or opportunity.</p></div><div className="controlActions"><button type="button" className="button secondary" onClick={() => scrollToTarget('inbox')}>Open smart inbox</button><a className="button secondary" href="/settings">Open settings</a><a className="button secondary" href="mailto:support@inboxoutlaw.app">Contact support</a></div><div className="controlStatus">For suspicious messages, do not click links, send money, share passwords, or provide verification codes until the sender is independently verified.</div></section>
         </div>
       </section>
     </main>
