@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
-type NavItem = { label: string; icon: string; target: string; filter?: string };
+type NavItem = { label: string; icon: string; target: string; filter?: string; href?: string };
 type LiveCounts = { total: number; scams: number; opportunities: number; safe: number; blocked: number };
 
 const navigation: NavItem[] = [
@@ -13,7 +13,7 @@ const navigation: NavItem[] = [
   { label: "Opportunities", icon: "◎", target: "inbox", filter: "Opportunities" },
   { label: "Safe Senders", icon: "✓", target: "inbox", filter: "Safe Senders" },
   { label: "Blocked Senders", icon: "⊘", target: "inbox", filter: "Blocked Senders" },
-  { label: "Reports", icon: "▥", target: "reports" },
+  { label: "Reports", icon: "▥", target: "reports", href: "/reports" },
   { label: "Rules & Filters", icon: "▽", target: "classifier" },
   { label: "AI Training", icon: "✦", target: "classifier" },
   { label: "Settings", icon: "⚙", target: "settings-panel" },
@@ -130,6 +130,10 @@ export default function DashboardShell({ email, children }: { email: string; chi
 
   function activate(item: NavItem) {
     setActive(item.label);
+    if (item.href) {
+      window.location.assign(item.href);
+      return;
+    }
     if (item.filter) window.dispatchEvent(new CustomEvent("inbox-filter", { detail: item.filter }));
     scrollToTarget(item.target);
   }
@@ -195,6 +199,9 @@ export default function DashboardShell({ email, children }: { email: string; chi
               <article className="referenceMetric greenMetric"><div><span>Safe senders</span><strong>{counts.safe}</strong><small>Messages or senders reviewed safe</small></div></article>
               <article className="referenceMetric blueMetric"><div><span>Reviewed</span><strong>{reviewRate}%</strong><small>{reviewed} of {counts.total} records reviewed</small></div></article>
               <article className="referenceMetric roseMetric"><div><span>Opportunities</span><strong>{counts.opportunities}</strong><small>Potential business opportunities found</small></div></article>
+            </div>
+            <div className="controlActions" style={{ marginTop: 18 }}>
+              <a className="button secondary" href="/reports">Open full reports</a>
             </div>
           </section>
 
