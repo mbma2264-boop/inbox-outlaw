@@ -65,13 +65,20 @@ async function supabaseRequest<T>(
     cache: 'no-store',
   });
 
+  const responseText = await response.text().catch(() => '');
+
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Supabase request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+    throw new Error(`Supabase request failed (${response.status})${responseText ? `: ${responseText}` : ''}`);
   }
 
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  // PostgREST can return 200/201 with an empty body when Prefer: return=minimal is used.
+  if (!responseText.trim()) return undefined as T;
+
+  try {
+    return JSON.parse(responseText) as T;
+  } catch {
+    throw new Error(`Supabase returned an invalid JSON response (${response.status}).`);
+  }
 }
 
 function mapDatabaseRecord(row: DatabaseEmailRecord): StoredEmailRecord {
