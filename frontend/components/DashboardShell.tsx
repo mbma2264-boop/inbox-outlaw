@@ -45,7 +45,39 @@ export default function DashboardShell({ email, children }: { email: string; chi
   const [search, setSearch] = useState("");
   const [dailyAlerts, setDailyAlerts] = useState(true);
   const [autoSync, setAutoSync] = useState(false);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [lastAutoSync, setLastAutoSync] = useState<string | null>(null);
   const [counts, setCounts] = useState<LiveCounts>({ total: 0, scams: 0, opportunities: 0, safe: 0, blocked: 0 });
+
+  useEffect(() => {
+    try {
+      setDailyAlerts(window.localStorage.getItem('inbox-outlaw-daily-alerts') !== 'false');
+      setAutoSync(window.localStorage.getItem('inbox-outlaw-auto-sync') === 'true');
+      setLastAutoSync(window.localStorage.getItem('inbox-outlaw-last-auto-sync'));
+    } finally {
+      setPreferencesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    window.localStorage.setItem('inbox-outlaw-daily-alerts', String(dailyAlerts));
+    window.localStorage.setItem('inbox-outlaw-auto-sync', String(autoSync));
+  }, [dailyAlerts, autoSync, preferencesLoaded]);
+
+  useEffect(() => {
+    if (!preferencesLoaded || !autoSync) return;
+
+    const requestSync = () => {
+      const timestamp = new Date().toISOString();
+      window.dispatchEvent(new CustomEvent('gmail-auto-sync-request'));
+      window.localStorage.setItem('inbox-outlaw-last-auto-sync', timestamp);
+      setLastAutoSync(timestamp);
+    };
+
+    const timer = window.setInterval(requestSync, 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [autoSync, preferencesLoaded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,14 +190,15 @@ export default function DashboardShell({ email, children }: { email: string; chi
             <div className="controlCopy">
               <span className="eyebrow">SETTINGS</span>
               <h2>Protection preferences</h2>
-              <p>These controls manage the dashboard experience. Gmail access remains read-only.</p>
+              <p>Preferences are saved in this browser. Gmail access remains read-only.</p>
             </div>
             <div className="controlActions">
               <button type="button" className={`button secondary ${dailyAlerts ? '' : 'quiet'}`} onClick={() => setDailyAlerts((enabled) => !enabled)}>{dailyAlerts ? 'Daily alerts enabled' : 'Daily alerts disabled'}</button>
-              <button type="button" className={`button secondary ${autoSync ? '' : 'quiet'}`} onClick={() => setAutoSync((enabled) => !enabled)}>{autoSync ? 'Auto-sync preference on' : 'Auto-sync preference off'}</button>
+              <button type="button" className={`button secondary ${autoSync ? '' : 'quiet'}`} onClick={() => setAutoSync((enabled) => !enabled)}>{autoSync ? 'Auto-sync every 5 minutes' : 'Auto-sync is off'}</button>
+              <button type="button" className="button secondary" onClick={() => window.dispatchEvent(new CustomEvent('gmail-auto-sync-request'))}>Sync Gmail now</button>
               <a className="button secondary" href="/api/auth/logout">Log out securely</a>
             </div>
-            <div className="controlStatus">Connected account: {email}. Inbox Outlaw does not send, delete, archive, or mark Gmail messages as read.</div>
+            <div className="controlStatus">Connected account: {email}. {lastAutoSync ? `Last automatic sync request: ${new Date(lastAutoSync).toLocaleString()}. ` : ''}Inbox Outlaw does not send, delete, archive, or mark Gmail messages as read.</div>
           </section>
 
           <section className="controlPanel" id="help-center">
