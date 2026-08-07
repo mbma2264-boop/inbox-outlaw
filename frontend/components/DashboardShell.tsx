@@ -9,10 +9,10 @@ type LiveCounts = { total: number; scams: number; opportunities: number; safe: n
 const navigation: NavItem[] = [
   { label: "Dashboard", icon: "⌂", target: "top" },
   { label: "Inbox", icon: "✉", target: "inbox", filter: "All" },
-  { label: "Scam Alerts", icon: "◈", target: "inbox", filter: "Scam" },
-  { label: "Opportunities", icon: "◎", target: "inbox", filter: "Opportunity" },
-  { label: "Safe Senders", icon: "✓", target: "inbox", filter: "Verified Business" },
-  { label: "Blocked Senders", icon: "⊘", target: "inbox", filter: "Likely Scam" },
+  { label: "Scam Alerts", icon: "◈", target: "inbox", filter: "Scam Alerts" },
+  { label: "Opportunities", icon: "◎", target: "inbox", filter: "Opportunities" },
+  { label: "Safe Senders", icon: "✓", target: "inbox", filter: "Safe Senders" },
+  { label: "Blocked Senders", icon: "⊘", target: "inbox", filter: "Blocked Senders" },
   { label: "Reports", icon: "▥", target: "reports" },
   { label: "Rules & Filters", icon: "▽", target: "classifier" },
   { label: "AI Training", icon: "✦", target: "classifier" },
@@ -108,7 +108,7 @@ export default function DashboardShell({ email, children }: { email: string; chi
           total: Number(payload.summary?.total ?? records.length),
           scams: Number(payload.summary?.scams ?? records.filter((record) => record.category === 'Scam' || record.category === 'Likely Scam').length),
           opportunities: Number(payload.summary?.opportunities ?? records.filter((record) => record.category === 'Opportunity').length),
-          safe: records.filter((record) => record.reviewState === 'safe' || record.category === 'Verified Business').length,
+          safe: records.filter((record) => record.reviewState === 'safe').length,
           blocked: records.filter((record) => record.reviewState === 'scam').length,
         });
       } catch {
