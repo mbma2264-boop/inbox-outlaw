@@ -67,7 +67,15 @@ export type GmailSyncMessage = {
 
 export type ActivityLogEntry = {
   id: string;
-  type: 'login' | 'manual_classification' | 'gmail_connected' | 'gmail_disconnected' | 'gmail_synced' | 'logout';
+  type:
+    | 'login'
+    | 'manual_classification'
+    | 'gmail_connected'
+    | 'gmail_disconnected'
+    | 'gmail_synced'
+    | 'email_reviewed'
+    | 'sender_rule_updated'
+    | 'logout';
   message: string;
   metadata: Record<string, unknown> | null;
   createdAt: string;
