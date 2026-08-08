@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { requireSessionUser } from '../../lib/auth';
 import { listScamReportQueue } from '../../lib/scam-report-queue';
+import ReportQueueClient from '../../components/ReportQueueClient';
 
 export const dynamic='force-dynamic';
 
@@ -18,10 +19,6 @@ export default async function ReportQueuePage(){
       <div style={{padding:16,border:'1px solid #30384d',borderRadius:12}}><small>Approved for preparation</small><strong style={{display:'block',fontSize:28}}>{approved.length}</strong></div>
       <div style={{padding:16,border:'1px solid #30384d',borderRadius:12}}><small>Total queued</small><strong style={{display:'block',fontSize:28}}>{items.length}</strong></div>
     </section>
-    <div style={{display:'grid',gap:14}}>{items.length?items.map(item=><article key={item.id} style={{padding:18,border:'1px solid #30384d',borderRadius:14,background:'#111727'}}>
-      <div style={{display:'flex',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}><div><strong>{item.subject||'(no subject)'}</strong><div style={{color:'#aeb7cc',marginTop:4}}>{item.sender_email}</div></div><span>{item.status.replace('_',' ')}</span></div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8,marginTop:16,fontSize:14}}><div>Risk: <strong>{item.risk_score}/100</strong></div><div>Confidence: <strong>{item.confidence_score}%</strong></div><div>Shared indicators: <strong>{item.shared_evidence_count}</strong></div><div>Independent reporters: <strong>{item.independent_reporters}</strong></div></div>
-      <p style={{color:'#aeb7cc',fontSize:13,marginTop:12}}>Queued {new Date(item.created_at).toLocaleString()}. External submission has not occurred.</p>
-    </article>):<p>No cases currently meet the reporting-review threshold.</p>}</div>
+    <ReportQueueClient initialItems={items}/>
   </main>;
 }
