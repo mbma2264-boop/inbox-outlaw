@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import DashboardClient from "../../components/DashboardClient";
 import DashboardShell from "../../components/DashboardShell";
+import ScanEntireInbox from "../../components/ScanEntireInbox";
 import { getSessionUser } from "../../lib/auth";
 
 export default async function DashboardPage() {
@@ -13,6 +14,7 @@ export default async function DashboardPage() {
       <Suspense fallback={<div className="loadingSkeleton">Loading your protected inbox…</div>}>
         <DashboardClient />
       </Suspense>
+      <ScanEntireInbox />
     </DashboardShell>
   );
 }
