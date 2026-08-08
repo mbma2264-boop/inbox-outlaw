@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
-import type { ClassificationResult, EmailInput, GmailSyncMessage } from './types';
+import { classifyEmailEvidence } from './classification-engine';
+import type { EmailInput, GmailSyncMessage } from './types';
 
 export const GMAIL_TOKEN_COOKIE = 'inbox_guardian_gmail_tokens';
 export const GMAIL_STATE_COOKIE = 'inbox_guardian_gmail_state';
@@ -88,9 +89,7 @@ export function validateGmailEnv(requestOrigin: string) {
     throw new Error('GOOGLE_CLIENT_ID is still a placeholder. Replace it in Vercel with the real Google Cloud OAuth Client ID ending in apps.googleusercontent.com, then redeploy.');
   }
 
-  return {
-    redirectUri: getGmailRedirectUri(requestOrigin),
-  };
+  return { redirectUri: getGmailRedirectUri(requestOrigin) };
 }
 
 function getCookieEncryptionKey() {
@@ -232,6 +231,7 @@ export async function handleGoogleCallback(origin: string, code: string, state: 
 async function refreshAccessToken(tokens: StoredTokens) {
   if (tokens.access_token && tokens.expires_at && tokens.expires_at > Date.now() + 60_000) return tokens;
   if (!tokens.refresh_token) return tokens;
+
   const { clientId, clientSecret } = requiredEnv();
   const response = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -244,9 +244,16 @@ async function refreshAccessToken(tokens: StoredTokens) {
     }),
     cache: 'no-store',
   });
+
   const payload = (await response.json().catch(() => null)) as (StoredTokens & { expires_in?: number }) | null;
-  if (!response.ok || !payload?.access_token) throw new Error(`Could not refresh Gmail access token. Reconnect Gmail.`);
-  const updated = { ...tokens, access_token: payload.access_token, expires_at: Date.now() + Number(payload.expires_in ?? 3600) * 1000, scope: payload.scope || tokens.scope };
+  if (!response.ok || !payload?.access_token) throw new Error('Could not refresh Gmail access token. Reconnect Gmail.');
+
+  const updated = {
+    ...tokens,
+    access_token: payload.access_token,
+    expires_at: Date.now() + Number(payload.expires_in ?? 3600) * 1000,
+    scope: payload.scope || tokens.scope,
+  };
   await writeStoredTokens(updated);
   return updated;
 }
@@ -279,6 +286,13 @@ function getHeader(message: GmailMessageResponse, headerName: string) {
   return message.payload?.headers?.find((header) => header.name.toLowerCase() === headerName.toLowerCase())?.value || '';
 }
 
+function getHeaders(message: GmailMessageResponse, headerName: string) {
+  return (message.payload?.headers || [])
+    .filter((header) => header.name.toLowerCase() === headerName.toLowerCase())
+    .map((header) => header.value)
+    .filter(Boolean);
+}
+
 function parseSender(from: string) {
   const match = from.match(/^(.*?)\s*<([^>]+)>$/);
   if (!match) return { sender_name: null, sender_email: from || 'unknown@email.local' };
@@ -289,49 +303,8 @@ function extractLinks(text: string) {
   return Array.from(new Set((text.match(/https?:\/\/[^\s)]+/gi) || []).slice(0, 20)));
 }
 
-export function classifyEmail(email: EmailInput): ClassificationResult {
-  const content = `${email.subject}\n${email.body_text}`.toLowerCase();
-  const reasons: string[] = [];
-  let risk = 10;
-
-  const riskyTerms = [
-    ['urgent', 15, 'Urgency language detected.'],
-    ['verify', 10, 'Verification request detected.'],
-    ['password', 15, 'Password/account language detected.'],
-    ['gift card', 20, 'Gift card language detected.'],
-    ['crypto', 20, 'Crypto language detected.'],
-    ['wallet', 15, 'Wallet language detected.'],
-    ['prize', 15, 'Prize/reward language detected.'],
-    ['click here', 10, 'Click-through language detected.'],
-    ['payment', 10, 'Payment language detected.'],
-  ] as const;
-
-  for (const [term, weight, reason] of riskyTerms) {
-    if (content.includes(term)) {
-      risk += weight;
-      reasons.push(reason);
-    }
-  }
-
-  if (email.links.length > 0) {
-    risk += Math.min(20, email.links.length * 5);
-    reasons.push('One or more links were found.');
-  }
-  if (!email.known_contact) risk += 10;
-
-  risk = Math.max(0, Math.min(100, risk));
-  const category = risk >= 70 ? 'Likely Scam' : risk >= 45 ? 'Promotion' : content.includes('opportunity') ? 'Opportunity' : 'Verified Business';
-  const recommended_action = risk >= 70 ? 'Do not click links or reply until verified.' : risk >= 45 ? 'Review carefully before acting.' : 'Low risk. Keep for review.';
-
-  return {
-    category,
-    risk_score: risk,
-    confidence_score: 72,
-    reasons: reasons.length ? reasons : ['No high-risk scam wording detected by the local classifier.'],
-    matched_rules: reasons.map((reason, index) => ({ rule_id: `local_rule_${index + 1}`, weight: 10, reason })),
-    recommended_action,
-    used_llm: false,
-  };
+export function classifyEmail(email: EmailInput) {
+  return classifyEmailEvidence(email);
 }
 
 export async function fetchLatestGmailMessages(limit: number): Promise<{ imported_count: number; next_page_token: string | null; messages: GmailSyncMessage[] }> {
@@ -340,8 +313,12 @@ export async function fetchLatestGmailMessages(limit: number): Promise<{ importe
   listUrl.searchParams.set('maxResults', String(limit));
   listUrl.searchParams.set('labelIds', 'INBOX');
 
-  const listResponse = await fetch(listUrl, { headers: { Authorization: `Bearer ${tokens.access_token}` }, cache: 'no-store' });
+  const listResponse = await fetch(listUrl, {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+    cache: 'no-store',
+  });
   if (!listResponse.ok) throw new Error(`Gmail inbox request failed with ${listResponse.status}.`);
+
   const listPayload = (await listResponse.json()) as GmailMessageListResponse;
   const messages: GmailSyncMessage[] = [];
 
@@ -351,10 +328,16 @@ export async function fetchLatestGmailMessages(limit: number): Promise<{ importe
       cache: 'no-store',
     });
     if (!messageResponse.ok) continue;
+
     const gmailMessage = (await messageResponse.json()) as GmailMessageResponse;
     const body = findTextPart(gmailMessage.payload) || gmailMessage.snippet || '';
     const sender = parseSender(getHeader(gmailMessage, 'From'));
     const subject = getHeader(gmailMessage, 'Subject') || '(no subject)';
+    const authHeaders = [
+      ...getHeaders(gmailMessage, 'Authentication-Results'),
+      ...getHeaders(gmailMessage, 'ARC-Authentication-Results'),
+    ].join(' | ');
+
     const email: EmailInput = {
       sender_name: sender.sender_name,
       sender_email: sender.sender_email,
@@ -364,16 +347,24 @@ export async function fetchLatestGmailMessages(limit: number): Promise<{ importe
       known_contact: false,
       in_reply_thread: Boolean(getHeader(gmailMessage, 'In-Reply-To')),
       starred: false,
+      reply_to: getHeader(gmailMessage, 'Reply-To') || null,
+      return_path: getHeader(gmailMessage, 'Return-Path') || null,
+      authentication_results: authHeaders || null,
     };
+
     messages.push({
       gmail_message_id: gmailMessage.id,
       thread_id: gmailMessage.threadId || item.threadId,
       email,
-      classification: classifyEmail(email),
+      classification: classifyEmailEvidence(email),
       received_at: gmailMessage.internalDate ? new Date(Number(gmailMessage.internalDate)).toISOString() : null,
       source: 'gmail',
     });
   }
 
-  return { imported_count: messages.length, next_page_token: listPayload.nextPageToken || null, messages };
+  return {
+    imported_count: messages.length,
+    next_page_token: listPayload.nextPageToken || null,
+    messages,
+  };
 }
