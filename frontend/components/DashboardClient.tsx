@@ -10,154 +10,29 @@ import type { ActivityLogEntry, GmailStatus, InboxSummary, StoredEmailRecord } f
 type SessionUser = { id?: string; email: string; isDemoUser: boolean };
 type DashboardPayload = { records: StoredEmailRecord[]; summary: InboxSummary; sessionUser?: SessionUser };
 type GmailSyncPayload = { importedCount: number; persistedCount: number; nextPageToken: string | null; records: StoredEmailRecord[]; summary: InboxSummary; sessionUser?: SessionUser };
-
 const emptySummary: InboxSummary = { total: 0, scams: 0, opportunities: 0, handled: 0 };
 
 export default function DashboardClient() {
-  const searchParams = useSearchParams();
-  const gmailBanner = useMemo(() => searchParams.get('gmail'), [searchParams]);
-  const [records, setRecords] = useState<StoredEmailRecord[]>([]);
-  const [summary, setSummary] = useState<InboxSummary>(emptySummary);
-  const [activity, setActivity] = useState<ActivityLogEntry[]>([]);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [connecting, setConnecting] = useState(false);
-  const [statusLoading, setStatusLoading] = useState(true);
-  const [seeding, setSeeding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [gmailMessage, setGmailMessage] = useState<string | null>(null);
-
-  const loadDashboard = useCallback(async () => {
-    try {
-      setLoading(true); setError(null);
-      const response = await fetch('/api/email-records', { cache: 'no-store' });
-      const payload = (await response.json().catch(() => null)) as ({ error?: string } & Partial<DashboardPayload>) | null;
-      if (!response.ok) throw new Error(payload?.error || `Dashboard request returned ${response.status}`);
-      setRecords((payload?.records || []) as StoredEmailRecord[]);
-      setSummary((payload?.summary || emptySummary) as InboxSummary);
-      setSessionUser((payload?.sessionUser as SessionUser | undefined) || null);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load dashboard'); }
-    finally { setLoading(false); }
-  }, []);
-
-  const loadActivity = useCallback(async () => {
-    try {
-      const response = await fetch('/api/activity', { cache: 'no-store' });
-      const payload = (await response.json().catch(() => null)) as { items?: ActivityLogEntry[]; error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error || `Activity request returned ${response.status}`);
-      setActivity(payload?.items || []);
-    } catch (err) { console.error(err); }
-  }, []);
-
-  const createActivity = useCallback(async (type: ActivityLogEntry['type'], message: string, metadata?: Record<string, unknown>) => {
-    await fetch('/api/activity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, message, metadata: metadata ?? null }) });
-    await loadActivity();
-  }, [loadActivity]);
-
-  const loadGmailStatus = useCallback(async () => {
-    try {
-      setStatusLoading(true);
-      const response = await fetch('/api/gmail/status', { cache: 'no-store' });
-      const payload = (await response.json().catch(() => null)) as (GmailStatus & { error?: string }) | null;
-      if (!response.ok) throw new Error(payload?.error || `Gmail status returned ${response.status}`);
-      setGmailStatus(payload as GmailStatus);
-    } catch (err) {
-      setGmailStatus(null);
-      setGmailMessage(err instanceof Error ? err.message : 'Unable to load Gmail status');
-    } finally { setStatusLoading(false); }
-  }, []);
-
-  useEffect(() => { void Promise.all([loadDashboard(), loadGmailStatus(), loadActivity()]); }, [loadDashboard, loadGmailStatus, loadActivity]);
-  useEffect(() => {
-    if (gmailBanner === 'connected') { setGmailMessage('Gmail connected successfully.'); void createActivity('gmail_connected', 'Connected Gmail for inbox sync.'); }
-    else if (gmailBanner === 'error') setGmailMessage(searchParams.get('message') || 'Gmail connection failed.');
-  }, [createActivity, gmailBanner, searchParams]);
-
-  async function onSeedDemo() {
-    try {
-      setSeeding(true); setError(null); setGmailMessage(null);
-      const response = await fetch('/api/demo/seed', { method: 'POST' });
-      const payload = (await response.json().catch(() => null)) as ({ error?: string; note?: string; records?: StoredEmailRecord[]; summary?: InboxSummary; activity?: ActivityLogEntry[]; sessionUser?: SessionUser }) | null;
-      if (!response.ok) throw new Error(payload?.error || `Seed request returned ${response.status}`);
-      setRecords(payload?.records || []); setSummary(payload?.summary || emptySummary); setActivity(payload?.activity || []); setSessionUser(payload?.sessionUser || sessionUser); setGmailMessage(payload?.note || 'Demo data loaded.');
-    } catch (err) { setGmailMessage(err instanceof Error ? err.message : 'Unable to load demo data.'); }
-    finally { setSeeding(false); }
-  }
-
-  async function onConnectGmail() {
-    try {
-      setConnecting(true); setGmailMessage('Opening Google connection…');
-      const response = await fetch(`/api/gmail/connect?return_to=${encodeURIComponent(window.location.href)}`, { cache: 'no-store' });
-      if (!response.ok) { const payload = (await response.json().catch(() => null)) as { error?: string } | null; throw new Error(payload?.error || `Connect request returned ${response.status}`); }
-      const payload = (await response.json()) as { authorizationUrl: string }; window.location.href = payload.authorizationUrl;
-    } catch (err) { setGmailMessage(err instanceof Error ? err.message : 'Unable to start Gmail connection.'); }
-    finally { setConnecting(false); }
-  }
-
-  async function onDisconnectGmail() {
-    try {
-      setGmailMessage(null);
-      const response = await fetch('/api/gmail/disconnect', { method: 'POST' });
-      const payload = (await response.json().catch(() => null)) as { error?: string; note?: string } | null;
-      if (!response.ok) throw new Error(payload?.error || `Disconnect request returned ${response.status}`);
-      setGmailStatus((current) => current ? { ...current, connected: false, has_refresh_token: false, token_expiry: null, note: payload?.note || 'Gmail disconnected.' } : null);
-      setGmailMessage(payload?.note || 'Gmail disconnected.'); await loadActivity();
-    } catch (err) { setGmailMessage(err instanceof Error ? err.message : 'Unable to disconnect Gmail.'); }
-  }
-
-  async function onSyncGmail() {
-    if (!gmailStatus?.connected) {
-      await onConnectGmail();
-      return;
-    }
-    try {
-      setSyncing(true); setError(null); setGmailMessage('Syncing your latest Gmail messages…');
-      const response = await fetch('/api/gmail/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ limit: 10 }) });
-      const payload = (await response.json().catch(() => null)) as ({ error?: string } & Partial<GmailSyncPayload>) | null;
-      if (!response.ok) throw new Error(payload?.error || `Sync request returned ${response.status}`);
-      const syncPayload = payload as GmailSyncPayload;
-      setRecords(syncPayload.records || []); setSummary(syncPayload.summary || emptySummary); setSessionUser(syncPayload.sessionUser || sessionUser);
-      setGmailMessage(`Imported ${syncPayload.importedCount ?? 0} Gmail messages and saved ${syncPayload.persistedCount ?? 0} records.`);
-      await Promise.all([loadGmailStatus(), loadActivity()]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to sync Gmail.';
-      setGmailMessage(message);
-      if (/token|oauth|credential|unauthorized|401|invalid_grant/i.test(message)) setGmailStatus((current) => current ? { ...current, connected: false } : null);
-    } finally { setSyncing(false); }
-  }
-
-  const healthScore = summary.total ? Math.max(0, Math.round(100 - (summary.scams / summary.total) * 70)) : 100;
-
-  return (
-    <section className="dashboardStack referenceDashboard">
-      <section className="referenceWelcome">
-        <div><h1>Welcome back, Michelle! <span aria-hidden="true">👋</span></h1><p>Here&apos;s what&apos;s happening with your inbox today.</p></div>
-        <div className="syncCluster">
-          <span className={`miniSyncStatus ${gmailStatus?.connected ? 'connected' : ''}`}><i /> {statusLoading ? 'Checking Gmail' : gmailStatus?.connected ? 'Gmail connected' : 'Gmail needs reconnecting'}</span>
-          <button className="syncNowButton" onClick={() => void onSyncGmail()} disabled={syncing || statusLoading || connecting}>{syncing ? 'Syncing…' : connecting ? 'Connecting…' : gmailStatus?.connected ? '↻ Sync Now' : 'Connect Gmail'}</button>
-        </div>
-      </section>
-
-      {gmailMessage ? <div className={`gmailSyncNotice ${/unable|failed|invalid|error|unauthorized/i.test(gmailMessage) ? 'error' : ''}`}>{gmailMessage}</div> : null}
-
-      <section className="referenceMetricGrid">
-        <article className="referenceMetric pinkMetric"><div className="referenceMetricIcon">✉</div><div><span>Scams caught</span><strong>{summary.scams}</strong><small>{summary.scams ? 'Threats flagged for review' : 'No new scams — keep it up!'}</small></div><b className="metricGhost">⌁</b></article>
-        <article className="referenceMetric greenMetric"><div className="referenceMetricIcon">◎</div><div><span>Opportunities</span><strong>{summary.opportunities}</strong><small>{summary.opportunities === 1 ? '1 new opportunity found' : `${summary.opportunities} opportunities found`}</small></div><b className="metricGhost">⌁</b></article>
-        <article className="referenceMetric roseMetric"><div className="referenceMetricIcon">♟</div><div><span>Handled automatically</span><strong>{summary.handled}</strong><small>Saved you time and hassle</small></div><b className="metricGhost">ϟ</b></article>
-        <article className="referenceMetric blueMetric"><div className="referenceMetricIcon">▣</div><div><span>Total processed</span><strong>{summary.total}</strong><small>Imported from Gmail</small></div><b className="metricGhost">⌁</b></article>
-      </section>
-
-      <section className="referenceToolbar" id="settings"><div className="toolbarFilters"><a href="#inbox" className="active">▣ All Emails</a><a href="#inbox">◇ Scams</a><a href="#inbox">◎ Opportunities</a><a href="#inbox">▤ Promotions</a><a href="#inbox">▧ Updates</a><a href="#inbox">◉ Social</a><a href="#inbox">◌ Security</a></div><div className="toolbarActions"><span className="miniSearch">⌕ Search emails...</span><span className="filterButton">Filters ▽</span></div></section>
-
-      {error ? <div className="errorBanner">{error}</div> : null}
-      {loading ? <div className="loadingSkeleton" /> : null}
-      <RecordsTable records={records} />
-
-      <section className="referenceFooterStats"><div><span>⌁</span><p><strong>Protected</strong><b>24/7</b><small>AI never sleeps</small></p></div><div><span>◫</span><p><strong>Database Updated</strong><b>Daily</b><small>Latest scam intelligence</small></p></div><div><span>♙</span><p><strong>You&apos;re In Control</strong><b>{healthScore}%</b><small>We give you the power</small></p></div><div className="missionStat"><span>♡</span><p><strong>Inbox Outlaw Mission</strong><small>Make the internet safer, one inbox at a time.</small></p></div></section>
-
-      <section className="hiddenUtilityPanels"><div className="controlPanel"><div className="controlCopy"><span className="eyebrow">GMAIL CONTROL</span><h2>Sync and protect your inbox</h2><p>Read-only access is used to classify recent messages. Inbox Outlaw cannot send, delete, archive, or mark your mail as read.</p></div><div className="controlActions"><button className="button" onClick={() => void onSyncGmail()} disabled={syncing || statusLoading}>{syncing ? 'Syncing…' : gmailStatus?.connected ? 'Sync latest inbox' : 'Connect Gmail'}</button><button className="button secondary" onClick={() => void onConnectGmail()} disabled={connecting}>{connecting ? 'Opening Google…' : gmailStatus?.connected ? 'Reconnect Gmail' : 'Connect Gmail'}</button><button className="button secondary quiet" onClick={onSeedDemo} disabled={seeding || loading}>{seeding ? 'Loading…' : 'Load demo data'}</button><button className="textButton" onClick={onDisconnectGmail} disabled={statusLoading || !gmailStatus?.connected}>Disconnect</button></div><div className="controlStatus">{gmailMessage || gmailStatus?.note || 'Ready.'}</div></div><div id="classifier"><ClassifierForm onSaved={async () => { await loadDashboard(); await loadActivity(); }} /></div><div id="activity"><ActivityFeed items={activity} /></div></section>
-    </section>
-  );
+  const searchParams = useSearchParams(); const gmailBanner = useMemo(() => searchParams.get('gmail'), [searchParams]);
+  const [records,setRecords]=useState<StoredEmailRecord[]>([]); const [summary,setSummary]=useState<InboxSummary>(emptySummary); const [activity,setActivity]=useState<ActivityLogEntry[]>([]); const [sessionUser,setSessionUser]=useState<SessionUser|null>(null); const [gmailStatus,setGmailStatus]=useState<GmailStatus|null>(null); const [loading,setLoading]=useState(true); const [syncing,setSyncing]=useState(false); const [connecting,setConnecting]=useState(false); const [statusLoading,setStatusLoading]=useState(true); const [seeding,setSeeding]=useState(false); const [error,setError]=useState<string|null>(null); const [gmailMessage,setGmailMessage]=useState<string|null>(null);
+  const loadDashboard=useCallback(async()=>{try{setLoading(true);setError(null);const response=await fetch('/api/email-records',{cache:'no-store'});const payload=await response.json().catch(()=>null) as ({error?:string}&Partial<DashboardPayload>)|null;if(!response.ok)throw new Error(payload?.error||`Dashboard request returned ${response.status}`);setRecords((payload?.records||[]) as StoredEmailRecord[]);setSummary((payload?.summary||emptySummary) as InboxSummary);setSessionUser((payload?.sessionUser as SessionUser|undefined)||null);}catch(err){setError(err instanceof Error?err.message:'Unable to load dashboard');}finally{setLoading(false);}},[]);
+  const loadActivity=useCallback(async()=>{try{const response=await fetch('/api/activity',{cache:'no-store'});const payload=await response.json().catch(()=>null) as {items?:ActivityLogEntry[];error?:string}|null;if(!response.ok)throw new Error(payload?.error||`Activity request returned ${response.status}`);setActivity(payload?.items||[]);}catch(err){console.error(err);}},[]);
+  const createActivity=useCallback(async(type:ActivityLogEntry['type'],message:string,metadata?:Record<string,unknown>)=>{await fetch('/api/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,message,metadata:metadata??null})});await loadActivity();},[loadActivity]);
+  const loadGmailStatus=useCallback(async()=>{try{setStatusLoading(true);const response=await fetch('/api/gmail/status',{cache:'no-store'});const payload=await response.json().catch(()=>null) as (GmailStatus&{error?:string})|null;if(!response.ok)throw new Error(payload?.error||`Gmail status returned ${response.status}`);setGmailStatus(payload as GmailStatus);}catch(err){setGmailStatus(null);setGmailMessage(err instanceof Error?err.message:'Unable to load Gmail status');}finally{setStatusLoading(false);}},[]);
+  useEffect(()=>{void Promise.all([loadDashboard(),loadGmailStatus(),loadActivity()]);},[loadDashboard,loadGmailStatus,loadActivity]);
+  useEffect(()=>{if(gmailBanner==='connected'){setGmailMessage('Gmail connected successfully.');void createActivity('gmail_connected','Connected Gmail for inbox sync.');}else if(gmailBanner==='error')setGmailMessage(searchParams.get('message')||'Gmail connection failed.');},[createActivity,gmailBanner,searchParams]);
+  async function onSeedDemo(){try{setSeeding(true);setError(null);setGmailMessage(null);const response=await fetch('/api/demo/seed',{method:'POST'});const payload=await response.json().catch(()=>null) as any;if(!response.ok)throw new Error(payload?.error||`Seed request returned ${response.status}`);setRecords(payload?.records||[]);setSummary(payload?.summary||emptySummary);setActivity(payload?.activity||[]);setSessionUser(payload?.sessionUser||sessionUser);setGmailMessage(payload?.note||'Demo data loaded.');}catch(err){setGmailMessage(err instanceof Error?err.message:'Unable to load demo data.');}finally{setSeeding(false);}}
+  async function onConnectGmail(){try{setConnecting(true);setGmailMessage('Opening Google connection…');const response=await fetch(`/api/gmail/connect?return_to=${encodeURIComponent(window.location.href)}`,{cache:'no-store'});if(!response.ok){const payload=await response.json().catch(()=>null) as {error?:string}|null;throw new Error(payload?.error||`Connect request returned ${response.status}`);}const payload=await response.json() as {authorizationUrl:string};window.location.href=payload.authorizationUrl;}catch(err){setGmailMessage(err instanceof Error?err.message:'Unable to start Gmail connection.');}finally{setConnecting(false);}}
+  async function onDisconnectGmail(){try{setGmailMessage(null);const response=await fetch('/api/gmail/disconnect',{method:'POST'});const payload=await response.json().catch(()=>null) as {error?:string;note?:string}|null;if(!response.ok)throw new Error(payload?.error||`Disconnect request returned ${response.status}`);setGmailStatus(c=>c?{...c,connected:false,has_refresh_token:false,token_expiry:null,note:payload?.note||'Gmail disconnected.'}:null);setGmailMessage(payload?.note||'Gmail disconnected.');await loadActivity();}catch(err){setGmailMessage(err instanceof Error?err.message:'Unable to disconnect Gmail.');}}
+  async function onSyncGmail(){if(!gmailStatus?.connected){await onConnectGmail();return;}try{setSyncing(true);setError(null);setGmailMessage('Scanning your latest Gmail messages…');const response=await fetch('/api/gmail/sync',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({limit:10})});const payload=await response.json().catch(()=>null) as ({error?:string}&Partial<GmailSyncPayload>)|null;if(!response.ok)throw new Error(payload?.error||`Sync request returned ${response.status}`);const p=payload as GmailSyncPayload;setRecords(p.records||[]);setSummary(p.summary||emptySummary);setSessionUser(p.sessionUser||sessionUser);setGmailMessage(`Scanned ${p.importedCount??0} Gmail messages and saved ${p.persistedCount??0} analysis records.`);await Promise.all([loadGmailStatus(),loadActivity()]);}catch(err){const message=err instanceof Error?err.message:'Unable to sync Gmail.';setGmailMessage(message);if(/token|oauth|credential|unauthorized|401|invalid_grant/i.test(message))setGmailStatus(c=>c?{...c,connected:false}:null);}finally{setSyncing(false);}}
+  const healthScore=summary.total?Math.max(0,Math.round(100-(summary.scams/summary.total)*70)):100;
+  return <section className="dashboardStack referenceDashboard">
+    <section className="referenceWelcome"><div><h1>Welcome back, Michelle! <span aria-hidden="true">👋</span></h1><p>Here&apos;s what&apos;s happening with your inbox today.</p></div><div className="syncCluster"><span className={`miniSyncStatus ${gmailStatus?.connected?'connected':''}`}><i /> {statusLoading?'Checking Gmail':gmailStatus?.connected?'Gmail connected':'Gmail needs reconnecting'}</span><button className="syncNowButton" onClick={()=>void onSyncGmail()} disabled={syncing||statusLoading||connecting}>{syncing?'Scanning…':connecting?'Connecting…':gmailStatus?.connected?'↻ Scan Now':'Connect Gmail'}</button></div></section>
+    {gmailMessage?<div className={`gmailSyncNotice ${/unable|failed|invalid|error|unauthorized/i.test(gmailMessage)?'error':''}`}>{gmailMessage}</div>:null}
+    <section className="referenceMetricGrid"><article className="referenceMetric pinkMetric"><div className="referenceMetricIcon">✉</div><div><span>Scams caught</span><strong>{summary.scams}</strong><small>{summary.scams?'Threats flagged for review':'No new scams detected'}</small></div><b className="metricGhost">⌁</b></article><article className="referenceMetric greenMetric"><div className="referenceMetricIcon">◎</div><div><span>Opportunities</span><strong>{summary.opportunities}</strong><small>{summary.opportunities===1?'1 potential opportunity found':`${summary.opportunities} potential opportunities found`}</small></div><b className="metricGhost">⌁</b></article><article className="referenceMetric roseMetric"><div className="referenceMetricIcon">♟</div><div><span>Reviewed by you</span><strong>{summary.handled}</strong><small>Emails you marked safe, scam, or opportunity</small></div><b className="metricGhost">ϟ</b></article><article className="referenceMetric blueMetric"><div className="referenceMetricIcon">▣</div><div><span>Emails scanned</span><strong>{summary.total}</strong><small>Analyzed records saved by Inbox Outlaw</small></div><b className="metricGhost">⌁</b></article></section>
+    <section className="referenceToolbar" id="settings"><div className="toolbarFilters"><a href="#inbox" className="active">▣ All Emails</a><a href="#inbox">◇ Scams</a><a href="#inbox">◎ Opportunities</a><a href="#inbox">▤ Promotions</a><a href="#inbox">▧ Updates</a><a href="#inbox">◉ Social</a><a href="#inbox">◌ Security</a></div><div className="toolbarActions"><span className="miniSearch">⌕ Search emails...</span><span className="filterButton">Filters ▽</span></div></section>
+    {error?<div className="errorBanner">{error}</div>:null}{loading?<div className="loadingSkeleton"/>:null}<RecordsTable records={records}/>
+    <section className="referenceFooterStats"><div><span>⌁</span><p><strong>Protected</strong><b>24/7</b><small>Classification rules ready whenever you scan</small></p></div><div><span>◫</span><p><strong>Evidence Based</strong><b>Multi-signal</b><small>Authentication, links, content and history</small></p></div><div><span>♙</span><p><strong>You&apos;re In Control</strong><b>{healthScore}%</b><small>Review uncertain classifications</small></p></div><div className="missionStat"><span>♡</span><p><strong>Inbox Outlaw Mission</strong><small>Make the internet safer, one inbox at a time.</small></p></div></section>
+    <section className="hiddenUtilityPanels"><div className="controlPanel"><div className="controlCopy"><span className="eyebrow">GMAIL CONTROL</span><h2>Scan and protect your inbox</h2><p>Read-only access is used to classify messages. Inbox Outlaw cannot send, delete, archive, or mark your Gmail messages as read.</p></div><div className="controlActions"><button className="button" onClick={()=>void onSyncGmail()} disabled={syncing||statusLoading}>{syncing?'Scanning…':gmailStatus?.connected?'Scan latest inbox':'Connect Gmail'}</button><button className="button secondary" onClick={()=>void onConnectGmail()} disabled={connecting}>{connecting?'Opening Google…':gmailStatus?.connected?'Reconnect Gmail':'Connect Gmail'}</button><button className="button secondary quiet" onClick={onSeedDemo} disabled={seeding||loading}>{seeding?'Loading…':'Load demo data'}</button><button className="textButton" onClick={onDisconnectGmail} disabled={statusLoading||!gmailStatus?.connected}>Disconnect</button></div><div className="controlStatus">{gmailMessage||gmailStatus?.note||'Ready.'}</div></div><div id="classifier"><ClassifierForm onSaved={async()=>{await loadDashboard();await loadActivity();}}/></div><div id="activity"><ActivityFeed items={activity}/></section>
+  </section>;
 }
