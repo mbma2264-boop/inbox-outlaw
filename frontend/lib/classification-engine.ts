@@ -5,59 +5,29 @@ type RuleHit = { id: string; weight: number; reason: string; confidence: number 
 const FREE_MAIL = new Set(['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'aol.com', 'icloud.com', 'proton.me', 'protonmail.com']);
 const URL_SHORTENERS = new Set(['bit.ly', 'tinyurl.com', 't.co', 'ow.ly', 'buff.ly', 'rebrand.ly', 'cutt.ly', 'is.gd']);
 
-function clamp(value: number, min = 0, max = 100) {
-  return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-function emailDomain(value: string | null | undefined) {
-  const match = String(value || '').toLowerCase().match(/@([^>\s]+)/);
-  return (match?.[1] || String(value || '').split('@')[1] || '').replace(/[>),;]+$/, '').trim();
-}
-
-function rootDomain(host: string) {
-  const clean = host.toLowerCase().replace(/^www\./, '').split(':')[0];
-  const parts = clean.split('.').filter(Boolean);
-  return parts.length <= 2 ? clean : parts.slice(-2).join('.');
-}
-
-function linkHosts(links: string[]) {
-  return links.flatMap((link) => {
-    try { return [new URL(link).hostname.toLowerCase()]; } catch { return []; }
-  });
-}
-
-function authState(raw: string | null | undefined, key: 'spf' | 'dkim' | 'dmarc') {
-  const value = String(raw || '').toLowerCase();
-  if (new RegExp(`\\b${key}=pass\\b`).test(value)) return 'pass';
-  if (new RegExp(`\\b${key}=(fail|softfail|permerror|temperror|neutral)\\b`).test(value)) return 'fail';
-  return 'unknown';
-}
-
-function containsAny(content: string, phrases: string[]) {
-  return phrases.filter((phrase) => content.includes(phrase));
-}
+function clamp(value: number, min = 0, max = 100) { return Math.max(min, Math.min(max, Math.round(value))); }
+function emailDomain(value: string | null | undefined) { const match = String(value || '').toLowerCase().match(/@([^>\s]+)/); return (match?.[1] || String(value || '').split('@')[1] || '').replace(/[>),;]+$/, '').trim(); }
+function rootDomain(host: string) { const clean = host.toLowerCase().replace(/^www\./, '').split(':')[0]; const parts = clean.split('.').filter(Boolean); return parts.length <= 2 ? clean : parts.slice(-2).join('.'); }
+function linkHosts(links: string[]) { return links.flatMap((link) => { try { return [new URL(link).hostname.toLowerCase()]; } catch { return []; } }); }
+function authState(raw: string | null | undefined, key: 'spf' | 'dkim' | 'dmarc') { const value = String(raw || '').toLowerCase(); if (new RegExp(`\\b${key}=pass\\b`).test(value)) return 'pass'; if (new RegExp(`\\b${key}=(fail|softfail|permerror|temperror|neutral)\\b`).test(value)) return 'fail'; return 'unknown'; }
+function containsAny(content: string, phrases: string[]) { return phrases.filter((phrase) => content.includes(phrase)); }
 
 export function classifyEmailEvidence(email: EmailInput): ClassificationResult {
   const content = `${email.subject}\n${email.body_text}`.toLowerCase();
   const hits: RuleHit[] = [];
   const positive: RuleHit[] = [];
   let risk = 8;
+  const addRisk = (id: string, weight: number, reason: string, confidence = 0.7) => { risk += weight; hits.push({ id, weight, reason, confidence }); };
+  const addPositive = (id: string, weight: number, reason: string, confidence = 0.7) => { risk -= weight; positive.push({ id, weight: -weight, reason, confidence }); };
 
-  const addRisk = (id: string, weight: number, reason: string, confidence = 0.7) => {
-    risk += weight;
-    hits.push({ id, weight, reason, confidence });
-  };
-  const addPositive = (id: string, weight: number, reason: string, confidence = 0.7) => {
-    risk -= weight;
-    positive.push({ id, weight: -weight, reason, confidence });
-  };
+  if (email.sender_history_decision === 'blocked') addRisk('sender_history_blocked', 42, 'You previously blocked or reported this sender as unsafe.', 0.995);
+  if (email.sender_history_decision === 'safe') addPositive('sender_history_safe', 24, 'You previously marked this sender as safe.', 0.97);
 
   const senderDomain = emailDomain(email.sender_email);
   const replyDomain = emailDomain(email.reply_to);
   const returnDomain = emailDomain(email.return_path);
   const senderRoot = rootDomain(senderDomain);
   const hosts = linkHosts(email.links);
-
   const spf = authState(email.authentication_results, 'spf');
   const dkim = authState(email.authentication_results, 'dkim');
   const dmarc = authState(email.authentication_results, 'dmarc');
@@ -68,28 +38,17 @@ export function classifyEmailEvidence(email: EmailInput): ClassificationResult {
   if (authPasses === 3) addPositive('auth_all_pass', 8, 'SPF, DKIM, and DMARC all passed.', 0.99);
   if (authFails >= 1) addRisk('auth_fail', 25 + (authFails - 1) * 8, `${authFails} email authentication check${authFails === 1 ? '' : 's'} failed.`, 0.97);
 
-  if (replyDomain && senderDomain && rootDomain(replyDomain) !== senderRoot) {
-    addRisk('reply_to_mismatch', 18, 'Reply-To domain does not match the sender domain.', 0.9);
-  } else if (replyDomain && senderDomain) {
-    addPositive('reply_to_match', 5, 'Reply-To domain matches the sender domain.', 0.85);
-  }
+  if (replyDomain && senderDomain && rootDomain(replyDomain) !== senderRoot) addRisk('reply_to_mismatch', 18, 'Reply-To domain does not match the sender domain.', 0.9);
+  else if (replyDomain && senderDomain) addPositive('reply_to_match', 5, 'Reply-To domain matches the sender domain.', 0.85);
+  if (returnDomain && senderDomain && rootDomain(returnDomain) === senderRoot) addPositive('return_path_match', 5, 'Return-Path aligns with the sender domain.', 0.8);
 
-  if (returnDomain && senderDomain && rootDomain(returnDomain) === senderRoot) {
-    addPositive('return_path_match', 5, 'Return-Path aligns with the sender domain.', 0.8);
-  }
-
-  const suspiciousPayment = containsAny(content, ['gift card', 'bitcoin', 'crypto wallet', 'wallet address', 'wire transfer', 'western union', 'moneygram']);
-  if (suspiciousPayment.length) addRisk('high_risk_payment', 25, 'High-risk payment method language detected.', 0.94);
-
+  if (containsAny(content, ['gift card', 'bitcoin', 'crypto wallet', 'wallet address', 'wire transfer', 'western union', 'moneygram']).length) addRisk('high_risk_payment', 25, 'High-risk payment method language detected.', 0.94);
   const credentialTerms = containsAny(content, ['password', 'verification code', 'security code', 'one-time code', 'login now', 'verify your account', 'confirm your account']);
   if (credentialTerms.length) addRisk('credential_request', 20, 'Credential or account-verification language detected.', 0.9);
-
   const pressureTerms = containsAny(content, ['urgent', 'immediately', 'act now', 'final notice', 'within 24 hours', 'suspended', 'expires today']);
   if (pressureTerms.length) addRisk('urgency_pressure', Math.min(18, 6 + pressureTerms.length * 4), 'Urgency or time-pressure language detected.', 0.82);
-
   const rewardTerms = containsAny(content, ['prize', 'winner', 'you won', 'reward', 'claim now', 'grant', 'compensation', 'inheritance']);
   if (rewardTerms.length) addRisk('reward_claim', Math.min(18, 7 + rewardTerms.length * 3), 'Prize, reward, grant, or unexpected-payment language detected.', 0.78);
-
   const authorityTerms = containsAny(content, ['irs', 'department of justice', 'fbi', 'social security administration', 'government grant', 'federal compensation']);
   if (authorityTerms.length && FREE_MAIL.has(senderDomain)) addRisk('authority_free_mail', 30, 'Authority or government language is paired with a free-email sender.', 0.98);
 
@@ -97,17 +56,14 @@ export function classifyEmailEvidence(email: EmailInput): ClassificationResult {
   if (hosts.some((host) => URL_SHORTENERS.has(host))) addRisk('shortened_link', 10, 'A shortened-link service was detected.', 0.75);
   if (hosts.some((host) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host))) addRisk('ip_link', 24, 'A link points directly to an IP address instead of a normal domain.', 0.95);
   if (hosts.some((host) => host.includes('xn--'))) addRisk('punycode_link', 18, 'An internationalized/punycode link was detected and needs review.', 0.88);
-
   const senderLinked = hosts.some((host) => rootDomain(host) === senderRoot);
   if (senderRoot && senderLinked) addPositive('official_domain_link', 10, 'At least one link matches the sender’s domain.', 0.84);
   if (senderRoot && hosts.length > 0 && !senderLinked && credentialTerms.length) addRisk('credential_link_mismatch', 18, 'Account-verification language points to domains unrelated to the sender.', 0.92);
-
   if (email.in_reply_thread) addPositive('reply_thread', 4, 'Message is part of an existing reply thread.', 0.65);
   if (email.known_contact) addPositive('known_contact', 12, 'Sender is a known contact.', 0.88);
 
   const promotional = containsAny(content, ['unsubscribe', 'sale', 'offer', 'coupon', 'deal', 'rewards', 'newsletter']).length >= 2;
   const opportunity = containsAny(content, ['opportunity', 'affiliate', 'partnership', 'collaboration', 'commission']).length >= 1;
-
   risk = clamp(risk);
 
   const strongEvidence = [...hits, ...positive].filter((hit) => hit.confidence >= 0.85).length;
@@ -115,43 +71,21 @@ export function classifyEmailEvidence(email: EmailInput): ClassificationResult {
   const conflict = hits.length > 0 && positive.length > 0;
   let confidence = 52 + Math.min(30, strongEvidence * 7) + Math.min(12, Math.max(0, totalEvidence - strongEvidence) * 3);
   if (authPasses === 3 || authFails >= 1) confidence += 6;
+  if (email.sender_history_decision) confidence += 8;
   if (conflict) confidence -= 10;
   if (totalEvidence <= 1) confidence -= 12;
   confidence = clamp(confidence, 45, 98);
 
   let category: string;
   let recommended_action: string;
-  if (risk >= 75) {
-    category = 'Likely Scam';
-    recommended_action = 'High risk. Do not click links, reply, send money, or provide codes until independently verified.';
-  } else if (risk >= 50) {
-    category = 'Needs Review';
-    recommended_action = 'Mixed or suspicious signals detected. Verify the sender and destination links before acting.';
-  } else if (opportunity && risk < 40) {
-    category = 'Opportunity';
-    recommended_action = 'Potential opportunity. Review the sender, terms, and destination before responding.';
-  } else if (promotional) {
-    category = 'Promotion';
-    recommended_action = risk <= 30 ? 'Low-risk promotion based on current evidence.' : 'Promotion detected. Review before clicking or purchasing.';
-  } else if (risk <= 25 && authPasses >= 2 && authFails === 0) {
-    category = 'Verified Business';
-    recommended_action = 'Strong authentication and low-risk signals. Normal caution still applies.';
-  } else {
-    category = 'Needs Review';
-    recommended_action = 'Not enough evidence to label this message verified. Review it before taking action.';
-  }
+  if (email.sender_history_decision === 'blocked' && risk >= 45) { category = 'Likely Scam'; recommended_action = 'Previously blocked sender. Do not interact unless you intentionally want to reverse that decision.'; }
+  else if (risk >= 75) { category = 'Likely Scam'; recommended_action = 'High risk. Do not click links, reply, send money, or provide codes until independently verified.'; }
+  else if (risk >= 50) { category = 'Needs Review'; recommended_action = 'Mixed or suspicious signals detected. Verify the sender and destination links before acting.'; }
+  else if (opportunity && risk < 40) { category = 'Opportunity'; recommended_action = 'Potential opportunity. Review the sender, terms, and destination before responding.'; }
+  else if (promotional) { category = 'Promotion'; recommended_action = risk <= 30 ? 'Low-risk promotion based on current evidence.' : 'Promotion detected. Review before clicking or purchasing.'; }
+  else if (risk <= 25 && ((authPasses >= 2 && authFails === 0) || email.sender_history_decision === 'safe')) { category = 'Verified Business'; recommended_action = email.sender_history_decision === 'safe' ? 'Previously trusted sender with low-risk current signals.' : 'Strong authentication and low-risk signals. Normal caution still applies.'; }
+  else { category = 'Needs Review'; recommended_action = 'Not enough evidence to label this message verified. Review it before taking action.'; }
 
-  const reasons = [...hits, ...positive]
-    .sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))
-    .map((hit) => hit.reason);
-
-  return {
-    category,
-    risk_score: risk,
-    confidence_score: confidence,
-    reasons: reasons.length ? reasons : ['No strong positive or negative signals were available, so manual review is recommended.'],
-    matched_rules: [...hits, ...positive].map((hit) => ({ rule_id: hit.id, weight: hit.weight, reason: hit.reason })),
-    recommended_action,
-    used_llm: false,
-  };
+  const reasons = [...hits, ...positive].sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).map((hit) => hit.reason);
+  return { category, risk_score: risk, confidence_score: confidence, reasons: reasons.length ? reasons : ['No strong positive or negative signals were available, so manual review is recommended.'], matched_rules: [...hits, ...positive].map((hit) => ({ rule_id: hit.id, weight: hit.weight, reason: hit.reason })), recommended_action, used_llm: false };
 }
