@@ -10,6 +10,7 @@ export type EmailInput = {
   reply_to?: string | null;
   return_path?: string | null;
   authentication_results?: string | null;
+  sender_history_decision?: 'safe' | 'blocked' | null;
 };
 
 export type ClassificationResult = {
