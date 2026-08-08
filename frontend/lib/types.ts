@@ -7,6 +7,9 @@ export type EmailInput = {
   known_contact: boolean;
   in_reply_thread: boolean;
   starred: boolean;
+  reply_to?: string | null;
+  return_path?: string | null;
+  authentication_results?: string | null;
 };
 
 export type ClassificationResult = {
