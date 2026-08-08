@@ -1,3 +1,11 @@
+export type SharedEvidenceMatch = {
+  evidence_type: 'sender_domain' | 'reply_domain' | 'link_domain' | 'wallet' | 'phone';
+  evidence_value: string;
+  independent_reporters: number;
+  total_reports: number;
+  confidence_level: 'low' | 'medium' | 'high';
+};
+
 export type EmailInput = {
   sender_name?: string | null;
   sender_email: string;
@@ -12,6 +20,7 @@ export type EmailInput = {
   authentication_results?: string | null;
   sender_history_decision?: 'safe' | 'blocked' | null;
   domain_history?: { safe: number; scam: number; total: number } | null;
+  community_evidence?: SharedEvidenceMatch[] | null;
 };
 
 export type ClassificationResult = {
