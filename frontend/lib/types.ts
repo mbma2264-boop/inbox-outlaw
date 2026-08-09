@@ -8,6 +8,9 @@ export type SharedEvidenceMatch = {
 
 export type ClassificationRuleMatch = { rule_id: string; weight: number; reason: string };
 
+export type MessageType = 'Sweepstakes / Promotion' | 'Purchase / Receipt' | 'Account Alert' | 'Newsletter / Promotion' | 'Opportunity' | 'Personal' | 'Business' | 'Unknown';
+export type TrustLevel = 'Verified' | 'Trusted' | 'Unverified' | 'Suspicious' | 'High Risk';
+
 export type EmailInput = {
   sender_name?: string | null;
   sender_email: string;
@@ -27,6 +30,8 @@ export type EmailInput = {
 
 export type ClassificationResult = {
   category: string;
+  message_type: MessageType;
+  trust_level: TrustLevel;
   risk_score: number;
   confidence_score: number;
   reasons: string[];
@@ -47,6 +52,8 @@ export type StoredEmailRecord = {
   subject: string;
   bodyText: string;
   category: string;
+  messageType: MessageType | null;
+  trustLevel: TrustLevel | null;
   riskScore: number;
   confidenceScore: number;
   classificationReasons: string[];
