@@ -18,7 +18,9 @@ const sampleItems: Array<{ email: EmailInput; result: ClassificationResult }> = 
       starred: false,
     },
     result: {
-      category: 'scam',
+      category: 'Likely Scam',
+      message_type: 'Opportunity',
+      trust_level: 'High Risk',
       risk_score: 92,
       confidence_score: 95,
       reasons: [
@@ -31,7 +33,7 @@ const sampleItems: Array<{ email: EmailInput; result: ClassificationResult }> = 
         { rule_id: 'urgent_cta', weight: 28, reason: 'Immediate action pressure' },
         { rule_id: 'vague_offer', weight: 29, reason: 'No clear product details' },
       ],
-      recommended_action: 'report',
+      recommended_action: 'Report or block unless independently verified.',
       used_llm: false,
     },
   },
@@ -48,7 +50,9 @@ const sampleItems: Array<{ email: EmailInput; result: ClassificationResult }> = 
       starred: true,
     },
     result: {
-      category: 'opportunity',
+      category: 'Opportunity',
+      message_type: 'Opportunity',
+      trust_level: 'Trusted',
       risk_score: 18,
       confidence_score: 88,
       reasons: [
@@ -60,7 +64,7 @@ const sampleItems: Array<{ email: EmailInput; result: ClassificationResult }> = 
         { rule_id: 'business_language', weight: 22, reason: 'Clear JV / launch wording' },
         { rule_id: 'known_contact', weight: -10, reason: 'Trusted sender context' },
       ],
-      recommended_action: 'keep',
+      recommended_action: 'Potential opportunity. Review the sender, terms, and destination before responding.',
       used_llm: false,
     },
   },
@@ -77,7 +81,9 @@ const sampleItems: Array<{ email: EmailInput; result: ClassificationResult }> = 
       starred: false,
     },
     result: {
-      category: 'newsletter',
+      category: 'Promotion',
+      message_type: 'Newsletter / Promotion',
+      trust_level: 'Unverified',
       risk_score: 12,
       confidence_score: 84,
       reasons: [
@@ -87,7 +93,7 @@ const sampleItems: Array<{ email: EmailInput; result: ClassificationResult }> = 
       matched_rules: [
         { rule_id: 'newsletter_digest', weight: 20, reason: 'Digest/newsletter phrasing' },
       ],
-      recommended_action: 'archive',
+      recommended_action: 'Low-risk newsletter or promotion. Review links before clicking.',
       used_llm: false,
     },
   },
