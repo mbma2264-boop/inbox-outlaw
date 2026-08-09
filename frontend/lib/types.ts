@@ -6,6 +6,8 @@ export type SharedEvidenceMatch = {
   confidence_level: 'low' | 'medium' | 'high';
 };
 
+export type ClassificationRuleMatch = { rule_id: string; weight: number; reason: string };
+
 export type EmailInput = {
   sender_name?: string | null;
   sender_email: string;
@@ -28,7 +30,7 @@ export type ClassificationResult = {
   risk_score: number;
   confidence_score: number;
   reasons: string[];
-  matched_rules: { rule_id: string; weight: number; reason: string }[];
+  matched_rules: ClassificationRuleMatch[];
   recommended_action: string;
   used_llm: boolean;
 };
@@ -47,6 +49,8 @@ export type StoredEmailRecord = {
   category: string;
   riskScore: number;
   confidenceScore: number;
+  classificationReasons: string[];
+  matchedRules: ClassificationRuleMatch[];
   recommendedAction: string | null;
   reviewState: ReviewState;
   reviewedAt: string | null;
