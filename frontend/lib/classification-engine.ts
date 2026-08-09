@@ -28,10 +28,10 @@ export function classifyEmailEvidence(email:EmailInput):ClassificationResult{
   const highRiskPayments=containsAny(content,['gift card','bitcoin','crypto wallet','wallet address','wire transfer','western union','moneygram']);if(highRiskPayments.length)addRisk('high_risk_payment',25,'High-risk payment method language detected.',0.94);
   const credentialTerms=containsAny(content,['password','verification code','security code','one-time code','login now','verify your account','confirm your account']);if(credentialTerms.length)addRisk('credential_request',20,'Credential or account-verification language detected.',0.9);
   const pressureTerms=containsAny(content,['urgent','immediately','act now','final notice','within 24 hours','suspended','expires today']);if(pressureTerms.length)addRisk('urgency_pressure',Math.min(18,6+pressureTerms.length*4),'Urgency or time-pressure language detected.',0.82);
-  const sweepstakesTerms=containsAny(content,['sweepstakes','sweepstake','official rules','no purchase necessary','enter to win','daily entry','bonus entry','drawing date']);
+  const sweepstakesTerms=containsAny(content,['sweepstakes','sweepstake','contest','contest director','official rules','no purchase necessary','enter to win','daily entry','bonus entry','drawing date','drawing']);
   const rewardTerms=containsAny(content,['prize','winner','you won','reward','claim now','grant','compensation','inheritance']);
-  const looksLikeSweepstakes=sweepstakesTerms.length>=1&&(containsAny(content,['prize','winner','reward','entry','enter']).length>=1);
-  if(looksLikeSweepstakes)addPositive('sweepstakes_context',10,'Sweepstakes language and entry/rules context were detected.',0.82);
+  const looksLikeSweepstakes=sweepstakesTerms.length>=1&&(containsAny(content,['prize','winner','reward','entry','enter','contest','drawing']).length>=1);
+  if(looksLikeSweepstakes)addPositive('sweepstakes_context',10,'Sweepstakes, contest, or entry/rules context was detected.',0.82);
   if(rewardTerms.length&&!looksLikeSweepstakes)addRisk('reward_claim',Math.min(18,7+rewardTerms.length*3),'Prize, reward, grant, or unexpected-payment language detected.',0.78);
   else if(rewardTerms.length&&looksLikeSweepstakes)addRisk('sweepstakes_reward_language',Math.min(8,2+rewardTerms.length*2),'Prize or reward language is present, but it appears in a sweepstakes context.',0.6);
   const authorityTerms=containsAny(content,['irs','department of justice','fbi','social security administration','government grant','federal compensation']);if(authorityTerms.length&&FREE_MAIL.has(senderDomain))addRisk('authority_free_mail',30,'Authority or government language is paired with a free-email sender.',0.98);
@@ -49,8 +49,8 @@ export function classifyEmailEvidence(email:EmailInput):ClassificationResult{
   let category:string;let recommended_action:string;
   if(email.sender_history_decision==='blocked'&&risk>=45){category='Likely Scam';recommended_action='Previously blocked sender. Do not interact unless you intentionally want to reverse that decision.';}
   else if(looksLikeSweepstakes&&sweepstakesDanger&&risk>=55){category='Likely Scam';recommended_action='Sweepstakes offer contains strong scam indicators. Do not pay fees, provide credentials, or follow suspicious links.';}
-  else if(looksLikeSweepstakes&&sweepstakesIdentityStrong&&risk<=35){category='Sweepstakes';recommended_action='Appears consistent with a legitimate sweepstakes or prize promotion. Review the official rules and never pay a fee to claim a prize.';}
-  else if(looksLikeSweepstakes&&risk<55){category='Sweepstakes';recommended_action='Sweepstakes or prize promotion detected. Review official rules, sender identity, and destination links before entering or claiming anything.';}
+  else if(looksLikeSweepstakes&&sweepstakesIdentityStrong&&risk<=35){category='Verified Sweepstakes / Promotion';recommended_action='Verified sender and sweepstakes or contest context detected. Review the official rules before entering or claiming a prize, and never pay a fee to claim winnings.';}
+  else if(looksLikeSweepstakes&&risk<55){category='Sweepstakes / Promotion';recommended_action='Sweepstakes, contest, or prize promotion detected. Review official rules, sender identity, and destination links before entering or claiming anything.';}
   else if(risk>=75){category='Likely Scam';recommended_action='High risk. Do not click links, reply, send money, or provide codes until independently verified.';}
   else if(risk>=50){category='Needs Review';recommended_action='Mixed or suspicious signals detected. Verify the sender and destination links before acting.';}
   else if(opportunity&&risk<40){category='Opportunity';recommended_action='Potential opportunity. Review the sender, terms, and destination before responding.';}
