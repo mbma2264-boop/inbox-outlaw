@@ -1,4 +1,5 @@
 import type { ClassificationResult, EmailInput, MessageType, TrustLevel } from './types';
+import { detectBrandIdentityMismatch } from './brand-identity';
 
 type RuleHit = { id: string; weight: number; reason: string; confidence: number };
 const FREE_MAIL = new Set(['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'aol.com', 'icloud.com', 'proton.me', 'protonmail.com']);
@@ -22,6 +23,8 @@ export function classifyEmailEvidence(email:EmailInput):ClassificationResult{
   const strongestCommunity=community.reduce((best,item)=>item.independent_reporters>(best?.independent_reporters||0)?item:best,community[0]);
   if(strongestCommunity){if(strongestCommunity.independent_reporters>=5)addRisk('community_evidence_high',30,`${strongestCommunity.independent_reporters} independent Inbox Outlaw users reported matching ${strongestCommunity.evidence_type.replace('_',' ')} evidence.`,0.97);else if(strongestCommunity.independent_reporters>=3)addRisk('community_evidence_medium',18,`${strongestCommunity.independent_reporters} independent Inbox Outlaw users reported matching ${strongestCommunity.evidence_type.replace('_',' ')} evidence.`,0.9);else if(strongestCommunity.independent_reporters>=1)addRisk('community_evidence_low',6,'A matching scam indicator has been reported by another Inbox Outlaw user.',0.62);}
   const senderDomain=emailDomain(email.sender_email);const replyDomain=emailDomain(email.reply_to);const returnDomain=emailDomain(email.return_path);const senderRoot=rootDomain(senderDomain);const hosts=linkHosts(email.links);
+  const brandIdentity=detectBrandIdentityMismatch(email.sender_name,senderDomain);const brandMismatch=Boolean(brandIdentity?.mismatch);
+  if(brandMismatch&&brandIdentity)addRisk('brand_impersonation',55,`Display name claims ${brandIdentity.brand}, but the authenticated sender domain is ${brandIdentity.senderDomain}, not an official ${brandIdentity.brand} domain.`,0.995);
   const spf=authState(email.authentication_results,'spf');const dkim=authState(email.authentication_results,'dkim');const dmarc=authState(email.authentication_results,'dmarc');const authPasses=[spf,dkim,dmarc].filter(state=>state==='pass').length;const authFails=[spf,dkim,dmarc].filter(state=>state==='fail').length;
   if(authPasses>=2)addPositive('auth_pass',18,`${authPasses} email authentication checks passed (SPF/DKIM/DMARC).`,0.95);if(authPasses===3)addPositive('auth_all_pass',8,'SPF, DKIM, and DMARC all passed.',0.99);if(authFails>=1)addRisk('auth_fail',25+(authFails-1)*8,`${authFails} email authentication check${authFails===1?'':'s'} failed.`,0.97);
   if(replyDomain&&senderDomain&&rootDomain(replyDomain)!==senderRoot)addRisk('reply_to_mismatch',18,'Reply-To domain does not match the sender domain.',0.9);else if(replyDomain&&senderDomain)addPositive('reply_to_match',5,'Reply-To domain matches the sender domain.',0.85);if(returnDomain&&senderDomain&&rootDomain(returnDomain)===senderRoot)addPositive('return_path_match',5,'Return-Path aligns with the sender domain.',0.8);
@@ -43,15 +46,15 @@ export function classifyEmailEvidence(email:EmailInput):ClassificationResult{
   const opportunityTerms=containsAny(content,['opportunity','affiliate','partnership','collaboration','commission']);
   const personalContext=(email.known_contact||email.in_reply_thread)&&newsletterTerms.length===0&&purchaseTerms.length===0&&accountAlertTerms.length===0&&!looksLikeSweepstakes;
 
-  const sweepstakesIdentityStrong=looksLikeSweepstakes&&authPasses>=2&&authFails===0&&(hosts.length===0||senderLinked)&&!highRiskPayments.length&&!credentialTerms.length;
+  const sweepstakesIdentityStrong=looksLikeSweepstakes&&authPasses>=2&&authFails===0&&(hosts.length===0||senderLinked)&&!highRiskPayments.length&&!credentialTerms.length&&!brandMismatch;
   if(sweepstakesIdentityStrong)addPositive('sweepstakes_verified_context',16,'Sweepstakes sender authentication and link alignment are consistent, with no payment or credential request detected.',0.93);
-  const sweepstakesDanger=looksLikeSweepstakes&&(highRiskPayments.length>0||credentialTerms.length>0||authFails>0||hits.some(hit=>['reply_to_mismatch','ip_link','punycode_link','community_evidence_high','community_evidence_medium'].includes(hit.id)));
-  if(sweepstakesDanger)addRisk('sweepstakes_danger',22,'Sweepstakes language is combined with a strong scam indicator such as payment, credential, authentication, or destination risk.',0.95);
-  const promotional=new Set([...newsletterTerms,...containsAny(content,['sale','offer','coupon','deal','rewards'])]).size>=2;const opportunity=opportunityTerms.length>=1;risk=clamp(risk);
+  const sweepstakesDanger=looksLikeSweepstakes&&(highRiskPayments.length>0||credentialTerms.length>0||authFails>0||brandMismatch||hits.some(hit=>['reply_to_mismatch','ip_link','punycode_link','community_evidence_high','community_evidence_medium'].includes(hit.id)));
+  if(sweepstakesDanger)addRisk('sweepstakes_danger',22,'Sweepstakes language is combined with a strong scam indicator such as payment, credential, authentication, identity, or destination risk.',0.95);
+  const promotional=new Set([...newsletterTerms,...containsAny(content,['sale','offer','coupon','deal','rewards'])]).size>=2;const opportunity=opportunityTerms.length>=1;if(brandMismatch)risk=Math.max(risk,55);risk=clamp(risk);
   const strongRisk=hits.filter(hit=>hit.confidence>=0.85);const strongPositive=positive.filter(hit=>hit.confidence>=0.85);const strongEvidence=strongRisk.length+strongPositive.length;const totalEvidence=hits.length+positive.length;const conflict=hits.length>0&&positive.length>0;
   let confidence=52+Math.min(30,strongEvidence*7)+Math.min(12,Math.max(0,totalEvidence-strongEvidence)*3);if(authPasses===3||authFails>=1)confidence+=6;if(email.sender_history_decision)confidence+=8;if(domainHistory&&domainHistory.total>=3)confidence+=3;if(strongestCommunity?.independent_reporters>=3)confidence+=5;if(conflict)confidence-=10;if(totalEvidence<=1)confidence-=12;
-  const independentRiskFamilies=new Set(hits.map(hit=>hit.id.split('_')[0]));const corroboratedRisk=hits.length>=3&&independentRiskFamilies.size>=2;const highlyCorroboratedRisk=strongRisk.length>=2&&hits.length>=3;if(corroboratedRisk)confidence+=8;if(highlyCorroboratedRisk)confidence+=6;if(risk>=65&&hits.length>=3)confidence+=5;if(strongRisk.length>0&&strongPositive.length>0)confidence-=6;if(sweepstakesIdentityStrong)confidence+=5;confidence=clamp(confidence,45,98);
-  const hasHighRiskEvidence=hits.some(hit=>hit.confidence>=0.85&&hit.weight>=18);const verifiedByAuthentication=authPasses===3&&authFails===0&&!hasHighRiskEvidence&&(hosts.length===0||senderLinked);const verifiedByUserHistory=email.sender_history_decision==='safe'&&!hasHighRiskEvidence&&risk<=20;
+  const independentRiskFamilies=new Set(hits.map(hit=>hit.id.split('_')[0]));const corroboratedRisk=hits.length>=3&&independentRiskFamilies.size>=2;const highlyCorroboratedRisk=strongRisk.length>=2&&hits.length>=3;if(corroboratedRisk)confidence+=8;if(highlyCorroboratedRisk)confidence+=6;if(risk>=65&&hits.length>=3)confidence+=5;if(strongRisk.length>0&&strongPositive.length>0)confidence-=6;if(sweepstakesIdentityStrong)confidence+=5;if(brandMismatch)confidence+=10;confidence=clamp(confidence,45,98);
+  const hasHighRiskEvidence=hits.some(hit=>hit.confidence>=0.85&&hit.weight>=18);const verifiedByAuthentication=authPasses===3&&authFails===0&&!hasHighRiskEvidence&&!brandMismatch&&(hosts.length===0||senderLinked);const verifiedByUserHistory=email.sender_history_decision==='safe'&&!hasHighRiskEvidence&&!brandMismatch&&risk<=20;
 
   let messageType:MessageType='Unknown';
   if(looksLikeSweepstakes)messageType='Sweepstakes / Promotion';
@@ -64,13 +67,13 @@ export function classifyEmailEvidence(email:EmailInput):ClassificationResult{
 
   let trustLevel:TrustLevel='Unverified';
   if(risk>=75||email.sender_history_decision==='blocked'||sweepstakesDanger&&risk>=55)trustLevel='High Risk';
-  else if(risk>=50||hasHighRiskEvidence)trustLevel='Suspicious';
+  else if(brandMismatch||risk>=50||hasHighRiskEvidence)trustLevel='Suspicious';
   else if(verifiedByAuthentication||sweepstakesIdentityStrong)trustLevel='Verified';
   else if(verifiedByUserHistory||email.known_contact)trustLevel='Trusted';
 
   let category:string;let recommended_action:string;
-  if(trustLevel==='High Risk'){category='Likely Scam';recommended_action=looksLikeSweepstakes?'Sweepstakes offer contains strong scam indicators. Do not pay fees, provide credentials, or follow suspicious links.':'High risk. Do not click links, reply, send money, or provide codes until independently verified.';}
-  else if(trustLevel==='Suspicious'){category='Needs Review';recommended_action='Mixed or suspicious signals detected. Verify the sender and destination links before acting.';}
+  if(trustLevel==='High Risk'){category='Likely Scam';recommended_action=brandMismatch?'Possible brand impersonation is combined with high-risk evidence. Do not use links or contact details in this message; verify through the brand’s official app or website.':looksLikeSweepstakes?'Sweepstakes offer contains strong scam indicators. Do not pay fees, provide credentials, or follow suspicious links.':'High risk. Do not click links, reply, send money, or provide codes until independently verified.';}
+  else if(trustLevel==='Suspicious'){category=brandMismatch?'Possible Brand Impersonation':'Needs Review';recommended_action=brandMismatch?'The displayed brand does not match the authenticated sender domain. Authentication can prove the real sending domain, but it does not prove that domain belongs to the brand being claimed. Verify independently through the brand’s official app or website.':'Mixed or suspicious signals detected. Verify the sender and destination links before acting.';}
   else if(messageType==='Sweepstakes / Promotion'&&trustLevel==='Verified'){category='Verified Sweepstakes / Promotion';recommended_action='Verified sender and sweepstakes or contest context detected. Review the official rules before entering or claiming a prize, and never pay a fee to claim winnings.';}
   else if(messageType==='Sweepstakes / Promotion'){category='Sweepstakes / Promotion';recommended_action='Sweepstakes, contest, or prize promotion detected. Review official rules, sender identity, and destination links before entering or claiming anything.';}
   else if(messageType==='Purchase / Receipt'&&trustLevel==='Verified'){category='Verified Purchase / Receipt';recommended_action='Purchase or delivery message from a verified sender. Confirm the order details match something you actually purchased before following any account links.';}
