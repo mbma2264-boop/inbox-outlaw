@@ -29,6 +29,9 @@ export const classificationVerificationCases: VerificationCase[] = [
   { name: 'Normal newsletter', expected: 'Promotion', email: base({ sender_email:'news@shop-example.com', subject:'Weekly newsletter sale', body_text:'This week’s sale and special offer. Unsubscribe anytime.', authentication_results:'spf=pass dkim=pass dmarc=pass' }) },
   { name: 'Legitimate-looking affiliate opportunity', expected: 'Opportunity', email: base({ sender_email:'partners@brand-example.com', subject:'Partnership opportunity', body_text:'We would like to discuss an affiliate collaboration and commission structure.', authentication_results:'spf=pass dkim=pass dmarc=pass' }) },
   { name: 'Unknown ordinary email stays unverified', expected: 'Needs Review', email: base({ sender_email:'person@unknown-example.com', subject:'Question', body_text:'Can you call me tomorrow?' }) },
+  { name: 'Scam words in subject alone do not classify message', expected: 'Needs Review', email: base({ subject:'URGENT FINAL NOTICE - SEND BITCOIN NOW', body_text:'Hello. Here is the ordinary update you requested.' }) },
+  { name: 'Opportunity words in subject alone do not classify message', expected: 'Needs Review', email: base({ subject:'Commission payment opportunity', body_text:'Hello. Please see the general information below.' }) },
+  { name: 'Harmless subject cannot hide dangerous body', expected: 'Likely Scam', email: base({ sender_email:'notice@gmail.com', subject:'Hello', body_text:'Department of Justice federal compensation. Act now immediately. Send a gift card and provide your verification code to claim compensation.' }) },
 ];
 
 export function runClassificationVerification() {
