@@ -1,113 +1,12 @@
 import { classifyEmailEvidence } from './classification-engine';
-import type { ClassificationResult, EmailInput, MessageType, TrustLevel } from './types';
-
-function fallbackCategory(type: MessageType) {
-  if (type === 'Opportunity') return 'Opportunity';
-  if (type === 'Newsletter / Promotion') return 'Promotion';
-  if (type === 'Sweepstakes / Promotion') return 'Sweepstakes / Promotion';
-  if (type === 'Personal') return 'Personal';
-  return 'Needs Review';
-}
-
-function withReason(result: ClassificationResult, reason: string, ruleId: string, weight: number) {
-  if (!result.reasons.includes(reason)) result.reasons = [reason, ...result.reasons];
-  if (!result.matched_rules.some(rule => rule.rule_id === ruleId)) {
-    result.matched_rules = [{ rule_id: ruleId, weight, reason }, ...result.matched_rules];
-  }
-}
-
-function setTrust(result: ClassificationResult, trust: TrustLevel) {
-  result.trust_level = trust;
-  if (trust === 'Unverified' && result.category.startsWith('Verified ')) result.category = fallbackCategory(result.message_type);
-}
-
-export function classifyEmailReliably(email: EmailInput): ClassificationResult {
-  const result = classifyEmailEvidence(email);
-  const links = email.links || [];
-  const checks = email.link_verifications || [];
-
-  // Existing strong danger evidence remains authoritative. Link verification never turns a high-risk
-  // message into a safe one, and a network failure is never treated as proof of fraud.
-  if (!links.length) return result;
-
-  if (!checks.length) {
-    const reason = 'This message contains links, but their destinations have not yet been independently resolved.';
-    withReason(result, reason, 'link_destination_unverified', 0);
-    if (result.trust_level === 'Verified') {
-      setTrust(result, 'Unverified');
-      result.confidence_score = Math.min(result.confidence_score, 74);
-      result.recommended_action = 'Verify the destination links before treating this message as verified. The subject line and visible link text are not proof of where a link goes.';
-    }
-    return result;
-  }
-
-  const blocked = checks.filter(check => check.status === 'blocked' || check.status === 'invalid');
-  const unreachable = checks.filter(check => check.status === 'unreachable');
-  const resolved = checks.filter(check => check.status === 'resolved');
-  const misaligned = resolved.filter(check => check.sender_aligned === false);
-  const insecure = resolved.filter(check => check.https_final === false);
-  const allResolved = checks.length === links.length && resolved.length === checks.length;
-  const allSenderAligned = allResolved && resolved.every(check => check.sender_aligned === true);
-
-  if (blocked.length) {
-    const reason = `${blocked.length} link${blocked.length === 1 ? '' : 's'} could not be safely opened because the destination was invalid, private/local, unsupported, or credential-bearing.`;
-    withReason(result, reason, 'link_destination_blocked', 24);
-    if (result.trust_level !== 'High Risk') {
-      result.trust_level = 'Suspicious';
-      result.category = result.message_type === 'Opportunity' ? 'Opportunity' : 'Needs Review';
-      result.risk_score = Math.max(result.risk_score, 58);
-      result.confidence_score = Math.max(result.confidence_score, 82);
-      result.recommended_action = 'Do not use the blocked link. Verify the sender and destination independently before acting.';
-    }
-    return result;
-  }
-
-  if (unreachable.length) {
-    const reason = `${unreachable.length} link destination${unreachable.length === 1 ? ' was' : 's were'} not reachable by the verification service. This is not proof that the link is unsafe.`;
-    withReason(result, reason, 'link_destination_unreachable', 0);
-    if (result.trust_level === 'Verified') {
-      setTrust(result, 'Unverified');
-      result.confidence_score = Math.min(result.confidence_score, 74);
-      result.recommended_action = 'The message cannot be called verified until its link destinations can be resolved. Use the organization’s official app or a bookmarked site if action is required.';
-    }
-    return result;
-  }
-
-  if (misaligned.length) {
-    const credentialLanguage = /password|verification code|security code|one-time code|login now|verify your account|confirm your account/i.test(email.body_text || '');
-    const reason = `${misaligned.length} resolved link destination${misaligned.length === 1 ? ' does' : 's do'} not align with the authenticated sender domain.`;
-    withReason(result, reason, 'resolved_link_sender_mismatch', credentialLanguage ? 24 : 8);
-    if (result.trust_level === 'Verified') setTrust(result, credentialLanguage ? 'Suspicious' : 'Unverified');
-    if (credentialLanguage && result.trust_level !== 'High Risk') {
-      result.trust_level = 'Suspicious';
-      result.category = result.message_type === 'Opportunity' ? 'Opportunity' : 'Needs Review';
-      result.risk_score = Math.max(result.risk_score, 60);
-      result.confidence_score = Math.max(result.confidence_score, 86);
-      result.recommended_action = 'A resolved link asks for account action but ends on a domain unrelated to the authenticated sender. Do not use that link; open the organization’s official site or app independently.';
-    } else if (result.trust_level === 'Unverified') {
-      result.confidence_score = Math.min(result.confidence_score, 78);
-      result.recommended_action = 'The destination was resolved, but it does not match the authenticated sender domain. This can be legitimate tracking, but it must not be presented as verified without additional evidence.';
-    }
-    return result;
-  }
-
-  if (insecure.length && result.trust_level === 'Verified') {
-    const reason = 'At least one resolved destination uses unencrypted HTTP rather than HTTPS.';
-    withReason(result, reason, 'resolved_link_insecure_http', 5);
-    setTrust(result, 'Unverified');
-    result.confidence_score = Math.min(result.confidence_score, 78);
-    result.recommended_action = 'The destination resolved but does not use HTTPS. Verify the organization independently before entering information or making a payment.';
-    return result;
-  }
-
-  if (allSenderAligned) {
-    const redirects = resolved.reduce((sum, check) => sum + check.redirect_count, 0);
-    const reason = redirects
-      ? `All ${resolved.length} checked link destination${resolved.length === 1 ? '' : 's'} resolved through the redirect chain and ended on the authenticated sender domain.`
-      : `All ${resolved.length} checked link destination${resolved.length === 1 ? '' : 's'} resolved on the authenticated sender domain.`;
-    withReason(result, reason, 'resolved_links_sender_aligned', -10);
-    result.confidence_score = Math.min(98, result.confidence_score + 4);
-  }
-
-  return result;
-}
+import type { ClassificationResult, EmailInput, MessageType, MoneySignal, OpportunitySignal, TrustLevel } from './types';
+function fallbackCategory(type:MessageType){if(type==='Opportunity')return'Opportunity';if(type==='Money / Payment')return'Money / Payment';if(type==='Newsletter / Promotion')return'Promotion';if(type==='Sweepstakes / Promotion')return'Sweepstakes / Promotion';if(type==='Personal')return'Personal';return'Needs Review';}
+function withReason(result:ClassificationResult,reason:string,ruleId:string,weight:number){if(!result.reasons.includes(reason))result.reasons=[reason,...result.reasons];if(!result.matched_rules.some(rule=>rule.rule_id===ruleId))result.matched_rules=[{rule_id:ruleId,weight,reason},...result.matched_rules];}
+function setTrust(result:ClassificationResult,trust:TrustLevel){result.trust_level=trust;if(trust==='Unverified'&&result.category.startsWith('Verified '))result.category=fallbackCategory(result.message_type);}
+const MONEY:[MoneySignal,RegExp][]=[['commission',/\bcommission(s)?\b/i],['payout',/\bpayout|paid out\b/i],['payment',/\bpayment received|payment sent|you(?:'|’)ve been paid|paid you\b/i],['refund',/\brefund(ed)?\b/i],['rebate',/\brebate\b/i],['cashback',/\bcash ?back\b/i],['royalty',/\broyalt(y|ies)\b/i],['earnings',/\bearnings|earned\b/i],['deposit',/\bdeposit(ed)?\b/i],['withdrawal',/\bwithdrawal\b/i],['invoice',/\binvoice paid|invoice payment\b/i],['prize',/\bprize|winner|you won\b/i],['grant',/\bgrant\b/i],['compensation',/\bcompensation\b/i],['inheritance',/\binheritance\b/i]];
+const OPP:[OpportunitySignal,RegExp][]=[['affiliate',/\baffiliate|affiliate program\b/i],['partnership',/\bpartnership|partner with\b/i],['collaboration',/\bcollaboration|collab\b/i],['sponsorship',/\bsponsor(ship|ed)?\b/i],['referral',/\breferral|refer and earn\b/i],['client',/\bnew client|prospective client|client inquiry\b/i],['job',/\bjob opportunity|position|interview invitation\b/i],['contract',/\bcontract opportunity|contract work\b/i],['lead',/\bnew lead|sales lead\b/i],['sale',/\bnew sale|you made a sale|sale notification\b/i],['commission',/\bcommission opportunity|earn commission|commission rate\b/i]];
+function detect<T extends string>(body:string,rules:[T,RegExp][]):T|null{for(const [kind,re]of rules)if(re.test(body))return kind;return null;}
+function enrichMoneyOpportunity(email:EmailInput,result:ClassificationResult){const body=email.body_text||'';const money=detect(body,MONEY);const opportunity=detect(body,OPP);result.money_signal=money;result.opportunity_signal=opportunity;const dangerous=result.trust_level==='High Risk'||result.trust_level==='Suspicious';if(opportunity){withReason(result,`Opportunity signal detected: ${opportunity}.`,'opportunity_signal',0);if(!dangerous&&result.message_type!=='Sweepstakes / Promotion'){result.message_type='Opportunity';result.category=result.trust_level==='Verified'||result.trust_level==='Trusted'?'Verified Opportunity':'Opportunity';result.recommended_action=result.trust_level==='Verified'||result.trust_level==='Trusted'?'Potential real opportunity. Review the terms, compensation, sender identity, and verified destination before accepting or paying anything.':'Potential opportunity detected, but it is not verified yet. Verify the sender, terms, and destination before acting.';}}
+ if(money){withReason(result,`Money signal detected: ${money}.`,'money_signal',0);const scamMoney=['prize','grant','compensation','inheritance'].includes(money);if(!dangerous&&!scamMoney&&!opportunity){result.message_type='Money / Payment';result.category=result.trust_level==='Verified'||result.trust_level==='Trusted'?'Verified Money / Payment':'Money / Payment';result.recommended_action=result.trust_level==='Verified'||result.trust_level==='Trusted'?'Money-related message from a trusted or verified sender. Confirm the amount and transaction inside the official account before taking action.':'Money-related message detected. Verify the sender and transaction independently before acting.';}if(opportunity&&!dangerous){result.category=result.trust_level==='Verified'||result.trust_level==='Trusted'?'Verified Money Opportunity':'Money Opportunity';result.recommended_action=result.trust_level==='Verified'||result.trust_level==='Trusted'?'A money-making or commission opportunity was detected with positive identity evidence. Review payout terms and the verified destination before proceeding.':'A money-making opportunity was detected, but it still needs identity and destination verification.';}}
+ return result;}
+export function classifyEmailReliably(email:EmailInput):ClassificationResult{const result=enrichMoneyOpportunity(email,classifyEmailEvidence(email));const links=email.links||[];const checks=email.link_verifications||[];if(!links.length)return result;if(!checks.length){const reason='This message contains links, but their destinations have not yet been independently resolved.';withReason(result,reason,'link_destination_unverified',0);if(result.trust_level==='Verified'){setTrust(result,'Unverified');result.confidence_score=Math.min(result.confidence_score,74);result.category=fallbackCategory(result.message_type);result.recommended_action='Verify the destination links before treating this message as verified.';}return result;}const blocked=checks.filter(c=>c.status==='blocked'||c.status==='invalid');const unreachable=checks.filter(c=>c.status==='unreachable');const resolved=checks.filter(c=>c.status==='resolved');const misaligned=resolved.filter(c=>c.sender_aligned===false);const insecure=resolved.filter(c=>c.https_final===false);const allResolved=checks.length===links.length&&resolved.length===checks.length;const allSenderAligned=allResolved&&resolved.every(c=>c.sender_aligned===true);if(blocked.length){withReason(result,`${blocked.length} link destination could not be safely opened.`,'link_destination_blocked',24);if(result.trust_level!=='High Risk'){result.trust_level='Suspicious';result.category=result.message_type==='Opportunity'?'Opportunity':result.message_type==='Money / Payment'?'Money / Payment':'Needs Review';result.risk_score=Math.max(result.risk_score,58);result.confidence_score=Math.max(result.confidence_score,82);}return result;}if(unreachable.length){withReason(result,`${unreachable.length} link destination could not be reached; this is not proof of fraud.`,'link_destination_unreachable',0);if(result.trust_level==='Verified'){setTrust(result,'Unverified');result.category=fallbackCategory(result.message_type);result.confidence_score=Math.min(result.confidence_score,74);}return result;}if(misaligned.length){const credential=/password|verification code|security code|one-time code|login now|verify your account|confirm your account/i.test(email.body_text||'');withReason(result,`${misaligned.length} resolved link destination does not align with the authenticated sender domain.`,'resolved_link_sender_mismatch',credential?24:8);if(result.trust_level==='Verified')setTrust(result,credential?'Suspicious':'Unverified');if(credential&&result.trust_level!=='High Risk'){result.trust_level='Suspicious';result.risk_score=Math.max(result.risk_score,60);result.confidence_score=Math.max(result.confidence_score,86);}result.category=fallbackCategory(result.message_type);return result;}if(insecure.length&&result.trust_level==='Verified'){withReason(result,'At least one resolved destination uses HTTP rather than HTTPS.','resolved_link_insecure_http',5);setTrust(result,'Unverified');result.category=fallbackCategory(result.message_type);return result;}if(allSenderAligned){withReason(result,`All ${resolved.length} checked link destination${resolved.length===1?'':'s'} resolved on the authenticated sender domain.`,'resolved_links_sender_aligned',-10);result.confidence_score=Math.min(98,result.confidence_score+4);if(result.message_type==='Opportunity'&&result.trust_level==='Verified')result.category=result.money_signal?'Verified Money Opportunity':'Verified Opportunity';if(result.message_type==='Money / Payment'&&result.trust_level==='Verified')result.category='Verified Money / Payment';}return result;}
