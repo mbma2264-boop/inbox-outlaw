@@ -8,6 +8,22 @@ export type SharedEvidenceMatch = {
 
 export type ClassificationRuleMatch = { rule_id: string; weight: number; reason: string };
 
+export type LinkVerificationStatus = 'resolved' | 'unreachable' | 'blocked' | 'invalid';
+export type LinkVerificationResult = {
+  original_url: string;
+  final_url: string | null;
+  status: LinkVerificationStatus;
+  http_status: number | null;
+  redirect_chain: string[];
+  redirect_count: number;
+  original_host: string | null;
+  final_host: string | null;
+  sender_aligned: boolean | null;
+  cross_domain_redirect: boolean;
+  https_final: boolean | null;
+  reason: string;
+};
+
 export type MessageType = 'Sweepstakes / Promotion' | 'Purchase / Receipt' | 'Account Alert' | 'Newsletter / Promotion' | 'Opportunity' | 'Personal' | 'Business' | 'Unknown';
 export type TrustLevel = 'Verified' | 'Trusted' | 'Unverified' | 'Suspicious' | 'High Risk';
 
@@ -17,6 +33,7 @@ export type EmailInput = {
   subject: string;
   body_text: string;
   links: string[];
+  link_verifications?: LinkVerificationResult[] | null;
   known_contact: boolean;
   in_reply_thread: boolean;
   starred: boolean;
