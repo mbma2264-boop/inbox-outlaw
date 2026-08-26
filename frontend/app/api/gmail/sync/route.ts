@@ -3,6 +3,7 @@ import { addActivityLog } from '../../../../lib/activity-log';
 import { requireSessionUser } from '../../../../lib/auth';
 import { getInboxSummary, listEmailRecords, upsertSyncedEmailRecords } from '../../../../lib/email-records';
 import { fetchLatestGmailMessages } from '../../../../lib/gmail-local';
+import { verifyEmailLinks } from '../../../../lib/link-verification';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,9 +18,12 @@ export async function POST(request: Request) {
   const pageToken = typeof payload.pageToken === 'string' && payload.pageToken.trim() ? payload.pageToken.trim() : null;
   try {
     const gmailPayload = await fetchLatestGmailMessages(limit, pageToken);
+    await Promise.all(gmailPayload.messages.map(async message => {
+      message.email.link_verifications = await verifyEmailLinks(message.email.links || [], message.email.sender_email);
+    }));
     const savedRecords = await upsertSyncedEmailRecords(user.email, gmailPayload.messages);
     const [records, summary] = await Promise.all([listEmailRecords(user.email, 250), getInboxSummary(user.email)]);
-    await addActivityLog(user.email,'gmail_synced',`Scanned ${gmailPayload.imported_count} Gmail messages and persisted ${savedRecords.length} records.`,{importedCount:gmailPayload.imported_count,persistedCount:savedRecords.length,totalRecords:summary.total,hasMore:Boolean(gmailPayload.next_page_token)});
+    await addActivityLog(user.email,'gmail_synced',`Scanned ${gmailPayload.imported_count} Gmail messages and persisted ${savedRecords.length} records.`,{importedCount:gmailPayload.imported_count,persistedCount:savedRecords.length,totalRecords:summary.total,hasMore:Boolean(gmailPayload.next_page_token),linkVerification:'enabled'});
     return NextResponse.json({importedCount:gmailPayload.imported_count,persistedCount:savedRecords.length,nextPageToken:gmailPayload.next_page_token??null,hasMore:Boolean(gmailPayload.next_page_token),records,summary,sessionUser:user,syncedAt:new Date().toISOString()},{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate'}});
   } catch (error) {
     const rawMessage = error instanceof Error ? error.message : 'Unable to sync Gmail.';
