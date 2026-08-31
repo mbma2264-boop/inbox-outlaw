@@ -1,5 +1,6 @@
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
+import { isKnownTrackingInfrastructure } from './link-purpose';
 import type { LinkVerificationResult } from './types';
 
 const MAX_LINKS = 8;
@@ -68,7 +69,8 @@ async function fetchOneHop(url: string) {
       cache: 'no-store',
       headers: { 'User-Agent': 'InboxOutlaw-LinkVerifier/1.0' },
     });
-    if ([405, 501].includes(response.status)) {
+    const needsGet = [405, 501].includes(response.status) || (isKnownTrackingInfrastructure(parsed.toString()) && response.status >= 200 && response.status < 300);
+    if (needsGet) {
       response = await fetch(parsed.toString(), {
         method: 'GET',
         redirect: 'manual',
