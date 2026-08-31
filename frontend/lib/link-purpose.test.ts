@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { classifyLinkPurpose, isAdministrativePurpose, isSensitivePurpose } from './link-purpose';
+import { classifyLinkPurpose, isAdministrativePurpose, isSensitivePurpose, trackingProvider } from './link-purpose';
 
 describe('link purpose classification',()=>{
   it('separates a third-party preference center from primary action links',()=>{
     const purpose=classifyLinkPurpose('https://07.emailinboundprocessing.com/preference_center/v1/token');
     expect(purpose).toBe('unsubscribe/preferences');
     expect(isAdministrativePurpose(purpose)).toBe(true);
+  });
+
+  it('recognizes AWeber click infrastructure as tracking',()=>{
+    const purpose=classifyLinkPurpose('https://clicks.aweber.com/y/ct/token');
+    expect(purpose).toBe('tracking');
+    expect(isAdministrativePurpose(purpose)).toBe(true);
+    expect(trackingProvider('https://www.aweber.com/z/r/token')).toBe('AWeber');
   });
 
   it('treats prize destinations as sensitive even when they use HTTPS',()=>{
