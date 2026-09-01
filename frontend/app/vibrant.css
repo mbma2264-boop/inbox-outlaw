@@ -1,0 +1,9 @@
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(1){border-color:#ff174f;background:linear-gradient(145deg,#9d1230,#390713 68%,#160208);box-shadow:0 0 24px rgba(255,23,79,.42),inset 0 0 24px rgba(255,23,79,.12)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(1) .referenceMetricIcon{color:#fff;background:#ff174f;box-shadow:0 0 20px rgba(255,23,79,.8)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(2){border-color:#00f58a;background:linear-gradient(145deg,#087d4d,#063d28 68%,#021b11);box-shadow:0 0 24px rgba(0,245,138,.38),inset 0 0 24px rgba(0,245,138,.1)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(2) .referenceMetricIcon{color:#04150d;background:#00f58a;box-shadow:0 0 20px rgba(0,245,138,.75)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(3){border-color:#d94cff;background:linear-gradient(145deg,#9d22e8,#5b0fa3 58%,#25054d);box-shadow:0 0 28px rgba(201,46,255,.5),inset 0 0 26px rgba(230,100,255,.14)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(3) .referenceMetricIcon{color:#fff;background:#c82eff;box-shadow:0 0 22px rgba(216,76,255,.9)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(4){border-color:#25a7ff;background:linear-gradient(145deg,#126fd2,#0a3d8e 62%,#041d49);box-shadow:0 0 24px rgba(37,167,255,.42),inset 0 0 24px rgba(37,167,255,.12)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(4) .referenceMetricIcon{color:#fff;background:#258cff;box-shadow:0 0 20px rgba(37,140,255,.82)}
+.referenceDashboard > .referenceMetricGrid > .referenceMetric span,.referenceDashboard > .referenceMetricGrid > .referenceMetric small{color:#fff}
