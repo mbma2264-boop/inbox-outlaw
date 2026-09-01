@@ -1,50 +1,31 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { DEMO_EMAIL, getSessionUser } from "../../lib/auth";
+import { getSessionUser } from "../../lib/auth";
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams?: Promise<{ error?: string }> }) {
   const sessionUser = await getSessionUser();
-  if (sessionUser) {
-    redirect("/dashboard");
-  }
+  if (sessionUser) redirect("/dashboard");
+  const params = searchParams ? await searchParams : undefined;
+  const error = params?.error;
 
   return (
     <main className="page">
       <div className="container">
         <section className="hero">
-          <h1>Inbox Outlaw Demo Login</h1>
-          <p>
-            Use the preset demo account below to open the dashboard quickly. It is pre-configured for your demo flow: <strong>{DEMO_EMAIL}</strong>.
-          </p>
-          <p className="subtle">
-            You can use sample data without connecting Gmail. Gmail sync is optional and read-only.
-          </p>
+          <h1>Sign in to Inbox Outlaw</h1>
+          <p>Use your Google account so Inbox Outlaw can verify that the account belongs to you.</p>
+          <p className="subtle">Signing in does not grant Gmail access. Gmail remains a separate read-only connection you choose from the dashboard.</p>
         </section>
 
         <section className="panel" style={{ maxWidth: 640, margin: "0 auto" }}>
-          <form action="/api/auth/login" method="post" style={{ display: "grid", gap: 16 }}>
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              defaultValue={DEMO_EMAIL}
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.03)",
-                color: "white",
-              }}
-            />
-            <input type="hidden" name="redirect_to" value="/dashboard" />
+          {error ? <div className="errorBanner" style={{ marginBottom: 16 }}>{error}</div> : null}
+          <div style={{ display: "grid", gap: 16 }}>
+            <a className="button" href="/api/auth/google/start?return_to=/dashboard">Continue with Google</a>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button className="button" type="submit">Continue to dashboard</button>
               <Link href="/" className="button secondary">Back</Link>
               <Link href="/privacy" className="button secondary">Privacy</Link>
             </div>
-          </form>
+          </div>
         </section>
       </div>
     </main>
