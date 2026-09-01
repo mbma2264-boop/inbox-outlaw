@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 
 export const DEMO_EMAIL = 'mbma2264@gmail.com';
@@ -28,17 +28,37 @@ function buildSessionUser(email: string): SessionUser {
   };
 }
 
+function sessionSecret() {
+  const secret = process.env.SESSION_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  if (!secret) throw new Error('SESSION_SECRET is required.');
+  return secret;
+}
+
+function signPayload(payload: string) {
+  return createHmac('sha256', sessionSecret()).update(payload).digest('base64url');
+}
+
+function safeSignatureEqual(actual: string, expected: string) {
+  try {
+    const actualBuffer = Buffer.from(actual, 'base64url');
+    const expectedBuffer = Buffer.from(expected, 'base64url');
+    return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+  } catch {
+    return false;
+  }
+}
+
 function encodeSession(email: string, expiresAt: string) {
-  const payload = Buffer.from(JSON.stringify({ email: normalizeEmail(email), expiresAt, nonce: randomBytes(8).toString('hex') })).toString('base64url');
-  const signature = createHash('sha256').update(payload).digest('hex');
-  return `${payload}.${signature}`;
+  const payload = Buffer.from(JSON.stringify({ email: normalizeEmail(email), expiresAt, nonce: randomBytes(16).toString('hex') })).toString('base64url');
+  return `${payload}.${signPayload(payload)}`;
 }
 
 function decodeSession(token: string | undefined): { email: string; expiresAt: string } | null {
   if (!token || !token.includes('.')) return null;
   const [payload, signature] = token.split('.');
-  const expectedSignature = createHash('sha256').update(payload).digest('hex');
-  if (signature !== expectedSignature) return null;
+  if (!payload || !signature) return null;
+  const expectedSignature = signPayload(payload);
+  if (!safeSignatureEqual(signature, expectedSignature)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { email?: string; expiresAt?: string };
     if (!parsed.email || !parsed.expiresAt) return null;
