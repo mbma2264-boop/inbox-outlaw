@@ -3,6 +3,7 @@ import "./polish.css";
 import "./actions.css";
 import "./insights.css";
 import "./fixes.css";
+import "./vibrant.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
