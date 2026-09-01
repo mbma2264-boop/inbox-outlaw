@@ -7,3 +7,8 @@
 .referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(4){border-color:#25a7ff;background:linear-gradient(145deg,#126fd2,#0a3d8e 62%,#041d49);box-shadow:0 0 24px rgba(37,167,255,.42),inset 0 0 24px rgba(37,167,255,.12)}
 .referenceDashboard > .referenceMetricGrid > .referenceMetric:nth-child(4) .referenceMetricIcon{color:#fff;background:#258cff;box-shadow:0 0 20px rgba(37,140,255,.82)}
 .referenceDashboard > .referenceMetricGrid > .referenceMetric span,.referenceDashboard > .referenceMetricGrid > .referenceMetric small{color:#fff}
+
+/* Navigation: purple instead of green */
+.sideNav button{border-color:rgba(200,46,255,.48)!important;box-shadow:inset 3px 0 0 #c82eff,0 0 13px rgba(200,46,255,.12)!important}
+.sideNav button:hover,.sideNav button.active{background:linear-gradient(90deg,#6d18c9,#a92cff 55%,#d94cff)!important;border-color:#d94cff!important;color:#fff!important;box-shadow:0 0 22px rgba(200,46,255,.48),inset 0 0 18px rgba(255,255,255,.08)!important}
+.sideNav button b{background:linear-gradient(90deg,#8b20e8,#d94cff)!important;box-shadow:0 0 12px rgba(200,46,255,.42)!important}
